@@ -2,10 +2,11 @@ use std::{
     collections::HashMap,
     fmt,
     fs::{File, OpenOptions, create_dir_all, metadata, read_to_string, remove_file},
-    path::{MAIN_SEPARATOR, Path, PathBuf},
+    path::{Path, PathBuf},
 };
 
 mod strings;
+mod util;
 
 /// Core struct representing the composed OpenMW configuration,
 /// After it has been fully resolved.
@@ -77,25 +78,7 @@ impl OpenMWConfiguration {
 
     /// Path to the highest-level configuration *directory*
     pub fn user_config_path(&self) -> PathBuf {
-        // dbg!(&self.sub_configs);
-        self.sub_configs
-            .iter()
-            // .filter(|dir| {
-            //     dbg!(&dir);
-            //     dir.join("openmw.cfg").is_file()
-            // })
-            .last()
-            .unwrap_or(&self.root_config)
-            // .parent()
-            // .expect("FAILED TO READ PARENT DIRECTORY OF THE USER OPENMW.CFG")
-            .to_owned()
-    }
-
-    /// Whether or not the highest-level configuration file can be written to
-    pub fn is_user_config_writable(&self) -> bool {
-        metadata(&self.user_config_path())
-            .map(|m| m.permissions().readonly() == false)
-            .unwrap_or(false)
+        util::user_config_path(&self.sub_configs, &self.root_config)
     }
 
     /// Content files are the actual *mods* or plugins which are created by either OpenCS or Bethesda's construction set
@@ -200,83 +183,24 @@ impl OpenMWConfiguration {
         &self.sub_configs
     }
 
-    /// Parses a data directory string according to OpenMW rules.
-    /// https://openmw.readthedocs.io/en/latest/reference/modding/paths.html#openmw-cfg-syntax
-    fn parse_data_directory(config_dir: &Path, mut data_dir: String) -> PathBuf {
-        // Quote handling
-        if data_dir.starts_with('"') {
-            let mut result = String::new();
-            let mut i = 1;
-            let chars: Vec<char> = data_dir.chars().collect();
-            while i < chars.len() {
-                if chars[i] == '&' {
-                    i += 1; // skip the next char (escape)
-                } else if chars[i] == '"' {
-                    break;
-                }
-                if i < chars.len() {
-                    result.push(chars[i]);
-                }
-                i += 1;
-            }
-            data_dir = result;
-        }
-
-        // Token replacement
-        if data_dir.starts_with("?userdata?") {
-            let mut path = crate::default_userdata_path();
-
-            path.push(&data_dir["?userdata?".len()..]);
-            data_dir = path.to_string_lossy().to_string();
-        } else if data_dir.starts_with("?userconfig?") {
-            let mut path = crate::default_config_path();
-
-            path.push(&data_dir["?userconfig?".len()..]);
-            data_dir = path.to_string_lossy().to_string();
-        }
-
-        let data_dir = data_dir.replace(['/', '\\'], &MAIN_SEPARATOR.to_string());
-
-        let mut path = PathBuf::from(&data_dir);
-        if !path.is_absolute() {
-            path = config_dir.join(path);
-        }
-
-        path
-    }
-
     /// Transposes an input directory or file path to an openmw.cfg path
     /// Maybe could do with some additional validation
     fn input_config_path(&self, config_dir: &Path) -> Result<PathBuf, String> {
-        // let dir_meta = metadata(&config_dir).map_err(|e| e.to_string())?;
-
-        // dbg!(
-        //     "Validating config path: ",
-        //     &config_dir,
-        //     dir_meta.is_dir(),
-        //     dir_meta.is_file()
-        // );
-
-        match config_dir.is_file() {
-            true => Ok(config_dir.to_path_buf()),
-            false => {
-                if config_dir.is_dir() {
-                    Ok(config_dir.join("openmw.cfg"))
-                } else if config_dir.is_file() {
-                    return Ok(config_dir.to_path_buf());
-                } else {
-                    Err(format!(
-                        "Unable to determine whether {config_dir:?} was a file or directory, refusing to read config!"
-                    ))
-                }
-            }
+        if config_dir.is_file() {
+            Ok(config_dir.to_path_buf())
+        } else if config_dir.is_dir() {
+            Ok(config_dir.join("openmw.cfg"))
+        } else {
+            Err(format!(
+                "Unable to determine whether {config_dir:?} was a file or directory, refusing to read config!"
+            ))
         }
     }
 
     fn load(&mut self, config_dir: &Path) -> Result<(), String> {
         let config_path = self.input_config_path(config_dir)?;
 
-        // dbg!(&"BEGIN CONFIG PARSING:", &config_path);
+        util::debug_log(format!("BEGIN CONFIG PARSING: {config_path:?}"));
 
         if !config_path.exists() {
             return Err(format!(
@@ -312,7 +236,7 @@ impl OpenMWConfiguration {
 
             match key {
                 "data" => {
-                    let dir = Self::parse_data_directory(config_dir, value);
+                    let dir = strings::parse_data_directory(&config_dir, value);
                     self.data_directories.push(dir);
                 }
                 "content" => {
@@ -339,7 +263,7 @@ impl OpenMWConfiguration {
                         .insert(tokens[0].to_string(), tokens[1].to_string());
                 }
                 "data-local" => {
-                    self.data_local = Some(Self::parse_data_directory(config_dir, value));
+                    self.data_local = Some(strings::parse_data_directory(&config_dir, value));
                 }
                 "config" => {
                     let config_dir = if config_dir.is_dir() {
@@ -350,7 +274,7 @@ impl OpenMWConfiguration {
                     .to_path_buf();
                     // dbg!("FOUND SUBCONFIG ENTRY:", &config_path);
 
-                    let config_path = Self::parse_data_directory(&config_dir, value.to_owned());
+                    let config_path = strings::parse_data_directory(&config_dir, value.to_owned());
 
                     sub_configs.push(config_path.clone());
 
@@ -379,7 +303,7 @@ impl OpenMWConfiguration {
                             "Parent configuration key {config_dir:?} was *not* in the sub-configuration list at all... Inserting {config_path:?} at the beginning of the list."
                         );
                         //0
-                        sub_configs.len()  - 1
+                        sub_configs.len() - 1
                     };
 
                     println!(
@@ -390,10 +314,10 @@ impl OpenMWConfiguration {
                     self.sub_configs.insert(insertion_index, config_path);
                 }
                 "resources" => {
-                    self.resources = Some(Self::parse_data_directory(config_dir, value));
+                    self.resources = Some(strings::parse_data_directory(&config_dir, value));
                 }
                 "userdata" => {
-                    self.userdata = Some(Self::parse_data_directory(config_dir, value));
+                    self.userdata = Some(strings::parse_data_directory(&config_dir, value));
                 }
                 "replace" => match value.to_lowercase().as_str() {
                     "content" => self.content_files = Vec::new(),

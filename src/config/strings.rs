@@ -44,3 +44,51 @@ pub fn content_file(f: &mut String, content_file: &String) -> Result<(), String>
 pub fn fallback_entry(f: &mut String, key: &String, value: &String) -> Result<(), String> {
     write_line_io(f, format!("fallback={},{}", key, value))
 }
+
+/// Parses a data directory string according to OpenMW rules.
+/// https://openmw.readthedocs.io/en/latest/reference/modding/paths.html#openmw-cfg-syntax
+pub fn parse_data_directory<P: AsRef<std::path::Path>>(
+    config_dir: &P,
+    mut data_dir: String,
+) -> PathBuf {
+    // Quote handling
+    if data_dir.starts_with('"') {
+        let mut result = String::new();
+        let mut i = 1;
+        let chars: Vec<char> = data_dir.chars().collect();
+        while i < chars.len() {
+            if chars[i] == '&' {
+                i += 1; // skip the next char (escape)
+            } else if chars[i] == '"' {
+                break;
+            }
+            if i < chars.len() {
+                result.push(chars[i]);
+            }
+            i += 1;
+        }
+        data_dir = result;
+    }
+
+    // Token replacement
+    if data_dir.starts_with("?userdata?") {
+        let mut path = crate::default_userdata_path();
+
+        path.push(&data_dir["?userdata?".len()..]);
+        data_dir = path.to_string_lossy().to_string();
+    } else if data_dir.starts_with("?userconfig?") {
+        let mut path = crate::default_config_path();
+
+        path.push(&data_dir["?userconfig?".len()..]);
+        data_dir = path.to_string_lossy().to_string();
+    }
+
+    let data_dir = data_dir.replace(['/', '\\'], &std::path::MAIN_SEPARATOR.to_string());
+
+    let mut path = PathBuf::from(&data_dir);
+    if !path.is_absolute() {
+        path = config_dir.as_ref().join(path);
+    }
+
+    path
+}
