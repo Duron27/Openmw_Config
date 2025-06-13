@@ -1,0 +1,13 @@
+[package]
+name = "openmw-config"
+description = "A library for interacting with the Openmw Configuration system."
+version = "0.1.0"
+authors = ["Dave Corley (S3kshun8) <corleycomputerrepair@protonmail.ch>"]
+license = "GPL-3.0-or-later OR MIT"
+repository = "https://github.com/magicaldave/Openmw_Config"
+readme = "README.md"
+keywords = ["openmw"]
+edition = "2024"
+
+[dependencies]
+dirs = "6.0.0"
