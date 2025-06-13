@@ -45,6 +45,15 @@ pub fn fallback_entry(f: &mut String, key: &String, value: &String) -> Result<()
     write_line_io(f, format!("fallback={},{}", key, value))
 }
 
+pub fn write_comments(comments: Option<Vec<String>>, config_string: &mut String) {
+    if let Some(comments) = comments {
+        for comment in comments {
+            config_string.push_str(&comment);
+            config_string.push('\n');
+        }
+    }
+}
+
 /// Parses a data directory string according to OpenMW rules.
 /// https://openmw.readthedocs.io/en/latest/reference/modding/paths.html#openmw-cfg-syntax
 pub fn parse_data_directory<P: AsRef<std::path::Path>>(

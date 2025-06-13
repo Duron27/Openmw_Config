@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fmt,
+    fmt::{self, write},
     fs::{File, OpenOptions, create_dir_all, metadata, read_to_string, remove_file},
     path::{Path, PathBuf},
 };
@@ -72,6 +72,8 @@ impl OpenMWConfiguration {
                     config.data_directories.insert(0, dir.join("vfs-mw"));
                     config.data_directories.insert(0, dir.join("vfs"))
                 }
+
+                util::debug_log(format!("{:#?}", config.game_settings));
 
                 Ok(config)
             }
@@ -341,11 +343,11 @@ impl OpenMWConfiguration {
                         self.userdata = None;
                     }
                     _ => {
-                        eprintln!("Warning: Unrecognized replacement option: {value}")
+                        // eprintln!("Warning: Unrecognized replacement option: {value}")
                     }
                 },
                 _ => {
-                    eprintln!("Warning: Unrecognized configuration pair: {key}={value}");
+                    // eprintln!("Warning: Unrecognized configuration pair: {key}={value}");
                     self.generic.insert(key.to_string(), value);
                 }
             }
@@ -388,71 +390,71 @@ impl OpenMWConfiguration {
         Ok(())
     }
 
-    fn can_write_to_dir<P: AsRef<Path>>(&self, dir: &P) -> bool {
-        let test_path = dir.as_ref().join(".openmw_cfg_write_test");
-        match File::create(&test_path) {
-            Ok(_) => {
-                let _ = remove_file(&test_path);
-                true
-            }
-            Err(_) => false,
-        }
-    }
-
-    fn write_comments<S: Into<String>>(&self, config_string: &mut String, comment_key: S) {
-        if let Some(comments) = self.comments.get(&comment_key.into()) {
-            for comment in comments {
-                config_string.push_str(comment);
-                config_string.push('\n');
-            }
-        }
-    }
-
     fn write_config<P: AsRef<Path> + std::fmt::Debug>(&self, path: &P) -> Result<(), String> {
         use std::io::Write;
         let mut config_string = String::new();
+        let mut comments = self.comments.clone();
 
         if let Some(ref resources) = self.resources {
-            self.write_comments(&mut config_string, resources.display().to_string());
+            strings::write_comments(
+                comments.remove(&resources.display().to_string()),
+                &mut config_string,
+            );
             strings::resources(&mut config_string, &self.resources)?;
         }
 
         if let Some(ref userdata) = self.userdata {
-            self.write_comments(&mut config_string, userdata.display().to_string());
+            strings::write_comments(
+                comments.remove(&userdata.display().to_string()),
+                &mut config_string,
+            );
             strings::userdata(&mut config_string, &self.userdata)?;
         }
 
         if let Some(ref data_local) = self.data_local {
-            self.write_comments(&mut config_string, data_local.display().to_string());
+            strings::write_comments(
+                comments.remove(&data_local.display().to_string()),
+                &mut config_string,
+            );
             strings::data_local(&mut config_string, &self.data_local)?;
         }
 
         for archive in &self.fallback_archives {
-            self.write_comments(&mut config_string, archive);
+            strings::write_comments(comments.remove(archive.as_str()), &mut config_string);
             strings::fallback_archive(&mut config_string, &archive)?;
         }
 
         for dir in &self.data_directories {
-            self.write_comments(&mut config_string, dir.display().to_string());
+            strings::write_comments(
+                comments.remove(&dir.display().to_string()),
+                &mut config_string,
+            );
             strings::data_directory(&mut config_string, &dir)?;
         }
 
         // Content files
         for content in &self.content_files {
-            self.write_comments(&mut config_string, content);
+            strings::write_comments(comments.remove(content.as_str()), &mut config_string);
             strings::content_file(&mut config_string, &content)?;
         }
 
-        for (key, value) in &self.fallback_entries {
+        for (key, value) in &self.game_settings {
             let fallback_entry_comment_key = format!("{key},{value}");
-            self.write_comments(&mut config_string, fallback_entry_comment_key);
-            strings::fallback_entry(&mut config_string, &key, &value)?;
+
+            strings::write_comments(
+                comments.remove(&fallback_entry_comment_key),
+                &mut config_string,
+            );
+
+            strings::fallback_entry(&mut config_string, &key, &value.to_string())?;
         }
 
         for (config, comments) in &self.trailing_comments {
-            config_string.push_str(&format!(
-                "\n#\n#\n# Trailing comments defined by: {config} #\n#\n#\n"
-            ));
+            if comments.len() == 0 {
+                continue;
+            };
+
+            config_string.push_str(&format!("\n# Trailing comments defined by: {config} #\n"));
 
             for comment in comments {
                 config_string.push_str(comment.as_str());
@@ -492,7 +494,7 @@ impl OpenMWConfiguration {
         }
 
         // Try to open a file for writing to check writability
-        if !self.can_write_to_dir(&target_dir) {
+        if !util::can_write_to_dir(&target_dir) {
             return Err(format!("Directory {:?} is not writable!", target_dir));
         };
 
@@ -517,7 +519,7 @@ impl OpenMWConfiguration {
         }
 
         // Try to open a file for writing to check writability
-        if !self.can_write_to_dir(&target_dir) {
+        if !util::can_write_to_dir(&target_dir) {
             return Err(format!("Directory {:?} is not writable!", target_dir));
         };
 

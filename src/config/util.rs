@@ -20,3 +20,14 @@ pub fn user_config_writable(path: &PathBuf) -> bool {
         .map(|m| m.permissions().readonly() == false)
         .unwrap_or(false)
 }
+
+pub fn can_write_to_dir<P: AsRef<std::path::Path>>(dir: &P) -> bool {
+    let test_path = dir.as_ref().join(".openmw_cfg_write_test");
+    match std::fs::File::create(&test_path) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&test_path);
+            true
+        }
+        Err(_) => false,
+    }
+}
