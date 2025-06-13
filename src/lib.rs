@@ -1,6 +1,15 @@
 mod config;
 pub use config::OpenMWConfiguration;
 
+pub (crate) trait GameSetting: std::fmt::Display {
+    fn meta(&self) -> &GameSettingMeta;
+}
+
+#[derive(Debug, Clone)]
+pub struct GameSettingMeta {
+    source_config: std::path::PathBuf,
+}
+
 /// Path to input bindings and core configuration
 /// These functions are not expected to fail and should they fail, indicate either:
 /// a severe issue with the system

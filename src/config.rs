@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod gamesetting;
 mod strings;
 mod util;
 
@@ -28,6 +29,7 @@ pub struct OpenMWConfiguration {
     comments: HashMap<String, Vec<String>>,
     /// Orphaned or trailing comments are preserved at the end of the configuration.
     trailing_comments: HashMap<String, Vec<String>>,
+    game_settings: HashMap<String, gamesetting::GameSettingType>,
 }
 
 impl OpenMWConfiguration {
@@ -259,8 +261,10 @@ impl OpenMWConfiguration {
                         ));
                     }
 
-                    self.fallback_entries
-                        .insert(tokens[0].to_string(), tokens[1].to_string());
+                    self.game_settings.insert(
+                        tokens[0].to_string(),
+                        gamesetting::GameSettingType::from((tokens[1].to_string(), config_dir.to_owned())),
+                    );
                 }
                 "data-local" => {
                     self.data_local = Some(strings::parse_data_directory(&config_dir, value));
@@ -322,7 +326,7 @@ impl OpenMWConfiguration {
                 "replace" => match value.to_lowercase().as_str() {
                     "content" => self.content_files = Vec::new(),
                     "data" => self.data_directories = Vec::new(),
-                    "fallback" => self.fallback_entries = HashMap::new(),
+                    "fallback" => self.game_settings = HashMap::new(),
                     "fallback-archives" => self.fallback_archives = Vec::new(),
                     "data-local" => self.data_local = None,
                     "resources" => self.resources = None,
@@ -330,7 +334,7 @@ impl OpenMWConfiguration {
                     "config" => {
                         self.content_files = Vec::new();
                         self.data_directories = Vec::new();
-                        self.fallback_entries = HashMap::new();
+                        self.game_settings = HashMap::new();
                         self.fallback_archives = Vec::new();
                         self.data_local = None;
                         self.resources = None;
