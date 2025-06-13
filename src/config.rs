@@ -7,36 +7,6 @@ use std::{
 
 mod strings;
 
-/// Path to input bindings and core configuration
-/// These functions are not expected to fail and should they fail, indicate either:
-/// a severe issue with the system
-/// or that an unsupported system is being used.
-pub fn default_config_path() -> PathBuf {
-    if cfg!(windows) {
-        dirs::document_dir()
-            .expect("FAILURE: COULD NOT READ CONFIG DIRECTORY")
-            .join("openmw")
-    } else {
-        dirs::preference_dir()
-            .expect("FAILURE: COULD NOT READ CONFIG DIRECTORY")
-            .join("openmw")
-    }
-}
-
-/// Path to save storage, screenshots, navmeshdb, and data-local
-/// These functions are not expected to fail and should they fail, indicate either:
-/// a severe issue with the system
-/// or that an unsupported system is being used.
-pub fn default_userdata_path() -> PathBuf {
-    if cfg!(windows) {
-        default_config_path()
-    } else {
-        dirs::data_dir()
-            .expect("FAILURE: COULD NOT READ USERDATA DIRECTORY")
-            .join("openmw")
-    }
-}
-
 /// Core struct representing the composed OpenMW configuration,
 /// After it has been fully resolved.
 /// The overall configuration itself is immutable after its construction
@@ -74,7 +44,7 @@ impl OpenMWConfiguration {
                     ));
                 }
             }
-            None => default_config_path().join("openmw.cfg"),
+            None => crate::default_config_path().join("openmw.cfg"),
         };
 
         match config.load(&root_config) {
@@ -254,12 +224,12 @@ impl OpenMWConfiguration {
 
         // Token replacement
         if data_dir.starts_with("?userdata?") {
-            let mut path = default_userdata_path();
+            let mut path = crate::default_userdata_path();
 
             path.push(&data_dir["?userdata?".len()..]);
             data_dir = path.to_string_lossy().to_string();
         } else if data_dir.starts_with("?userconfig?") {
-            let mut path = default_config_path();
+            let mut path = crate::default_config_path();
 
             path.push(&data_dir["?userconfig?".len()..]);
             data_dir = path.to_string_lossy().to_string();
