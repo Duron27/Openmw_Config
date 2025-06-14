@@ -281,46 +281,10 @@ impl OpenMWConfiguration {
                         config_dir.parent().expect("")
                     }
                     .to_path_buf();
-                    // dbg!("FOUND SUBCONFIG ENTRY:", &config_path);
 
                     let config_path = strings::parse_data_directory(&config_dir, value.to_owned());
 
-                    sub_configs.push(config_path.clone());
-
-                    let subconfig_found = self
-                        .sub_configs
-                        .iter()
-                        .position(|subconfig_path| subconfig_path == &config_dir);
-                    // .unwrap_or(self.sub_configs.len());
-
-                    let insertion_index = if let Some(parent_index) = subconfig_found {
-                        if parent_index == sub_configs.len() {
-                            println!(
-                                "Parent configuration key is at the end of the list. Inserting {config_path:?} at "
-                            );
-                            sub_configs.len() - 1
-                            // parent_index// - 1
-                        } else {
-                            println!(
-                                "Parent configuration key {config_dir:?} was *not* at the end of the list. Inserting {config_path:?} at {}",
-                                parent_index + 1
-                            );
-                            parent_index + 1
-                        }
-                    } else {
-                        println!(
-                            "Parent configuration key {config_dir:?} was *not* in the sub-configuration list at all... Inserting {config_path:?} at the beginning of the list."
-                        );
-                        //0
-                        sub_configs.len() - 1
-                    };
-
-                    println!(
-                        "Inserting sub-configuration {config_path:?} at index {insertion_index} of {} based on parent path:  {config_dir:?}",
-                        self.sub_configs.len()
-                    );
-
-                    self.sub_configs.insert(insertion_index, config_path);
+                    sub_configs.push(config_path);
                 }
                 "resources" => {
                     self.resources = Some(strings::parse_data_directory(&config_dir, value));
@@ -373,11 +337,7 @@ impl OpenMWConfiguration {
         // A configuration entry doesn't necessarily *need* to have an openmw.cfg as the system is more complex than that
         // However, it should still be tracked for other purposes regardless
         for config in sub_configs {
-            // dbg!(
-            //     config.join("openmw.cfg"),
-            //     &self,
-            //     config.join("openmw.cfg").is_file()
-            // );
+            self.sub_configs.push(config.clone());
 
             if config.join("openmw.cfg").is_file() {
                 // dbg!("READING NEXT CONFIG: ", config.join("openmw.cfg"), &self);
