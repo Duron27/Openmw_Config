@@ -265,7 +265,10 @@ impl OpenMWConfiguration {
 
                     self.game_settings.insert(
                         tokens[0].to_string(),
-                        gamesetting::GameSettingType::from((tokens[1].to_string(), config_dir.to_owned())),
+                        gamesetting::GameSettingType::from((
+                            tokens[1].to_string(),
+                            config_dir.to_owned(),
+                        )),
                     );
                 }
                 "data-local" => {
