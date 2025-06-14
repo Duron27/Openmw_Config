@@ -73,7 +73,7 @@ impl OpenMWConfiguration {
                     config.data_directories.insert(0, dir.join("vfs"))
                 }
 
-                util::debug_log(format!("{:#?}", config.game_settings));
+                util::debug_log(format!("{:#?}\n{:#?}", config.game_settings, config.sub_configs));
 
                 Ok(config)
             }
