@@ -5,6 +5,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod directorysetting;
+use directorysetting::DirectorySetting;
 mod gamesetting;
 mod strings;
 mod util;
@@ -21,7 +23,7 @@ pub struct OpenMWConfiguration {
     fallback_entries: HashMap<String, String>,
     fallback_archives: Vec<String>,
     data_local: Option<PathBuf>,
-    userdata: Option<PathBuf>,
+    userdata: Option<DirectorySetting>,
     resources: Option<PathBuf>,
     /// Unrecognized or otherwise not-super-important values
     generic: HashMap<String, String>,
@@ -73,7 +75,10 @@ impl OpenMWConfiguration {
                     config.data_directories.insert(0, dir.join("vfs"))
                 }
 
-                util::debug_log(format!("{:#?}\n{:#?}", config.game_settings, config.sub_configs));
+                util::debug_log(format!(
+                    "{:#?}\n{:#?}",
+                    config.game_settings, config.sub_configs
+                ));
 
                 Ok(config)
             }
@@ -162,13 +167,13 @@ impl OpenMWConfiguration {
 
     /// Userdata is a special directory in which saves, screenshots, and other user-specific miscellany go
     /// which are *not* related to configuration, such as navmesh.db
-    pub fn userdata_dir(&self) -> &Option<PathBuf> {
+    pub fn userdata_dir(&self) -> &Option<DirectorySetting> {
         &self.userdata
     }
 
     /// Overrides the userdata directory
     /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_userdata_dir(&mut self, dir: PathBuf) {
+    pub fn set_userdata_dir(&mut self, dir: DirectorySetting) {
         self.userdata = Some(dir)
     }
 
@@ -290,7 +295,7 @@ impl OpenMWConfiguration {
                     self.resources = Some(strings::parse_data_directory(&config_dir, value));
                 }
                 "userdata" => {
-                    self.userdata = Some(strings::parse_data_directory(&config_dir, value));
+                    self.userdata = Some(DirectorySetting::from((value, config_dir.to_path_buf())));
                 }
                 "replace" => match value.to_lowercase().as_str() {
                     "content" => self.content_files = Vec::new(),
@@ -367,11 +372,8 @@ impl OpenMWConfiguration {
         }
 
         if let Some(ref userdata) = self.userdata {
-            strings::write_comments(
-                comments.remove(&userdata.display().to_string()),
-                &mut config_string,
-            );
-            strings::userdata(&mut config_string, &self.userdata)?;
+            strings::write_comments(comments.remove(userdata.original()), &mut config_string);
+            strings::userdata(&mut config_string, userdata.original())?;
         }
 
         if let Some(ref data_local) = self.data_local {
@@ -513,7 +515,7 @@ impl fmt::Display for OpenMWConfiguration {
 
         // Userdata (not typically in openmw.cfg, but included for completeness)
         if let Some(ref userdata) = self.userdata {
-            writeln!(f, "userdata={}", userdata.display())?;
+            writeln!(f, "userdata={}", userdata)?;
         }
 
         // Data-local
