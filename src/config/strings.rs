@@ -13,12 +13,8 @@ pub fn resources(f: &mut String, resources: &Option<PathBuf>) -> Result<(), Stri
     }
 }
 
-pub fn userdata(f: &mut String, userdata: &Option<PathBuf>) -> Result<(), String> {
-    if let Some(userdata) = userdata {
-        write_line_io(f, format!("userdata={}", userdata.display()))
-    } else {
-        Ok(())
-    }
+pub fn userdata(f: &mut String, userdata: &String) -> Result<(), String> {
+    write_line_io(f, format!("userdata={}", userdata))
 }
 
 pub fn data_local(f: &mut String, data_local: &Option<PathBuf>) -> Result<(), String> {
