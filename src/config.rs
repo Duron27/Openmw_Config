@@ -5,7 +5,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{ConfigError, GameSetting, bail_config};
+use crate::{
+    ConfigError, GameSetting, bail_config,
+    config::{self, util::user_config_path},
+};
 
 mod directorysetting;
 use directorysetting::DirectorySetting;
@@ -94,7 +97,6 @@ macro_rules! insert_dir_setting {
 pub struct OpenMWConfiguration {
     root_config: PathBuf,
     sub_configs: Vec<PathBuf>,
-    data_directories: Vec<PathBuf>,
     content_files: Vec<String>,
     fallback_archives: Vec<String>,
     data_local: Option<PathBuf>,
@@ -121,10 +123,17 @@ impl OpenMWConfiguration {
         match config.load(&root_config) {
             Err(error) => Err(error),
             Ok(_) => {
-                config.root_config = root_config;
+                config.root_config = root_config.clone();
 
                 if let Some(dir) = &config.data_local {
-                    config.data_directories.push(dir.clone());
+                    let data_local_setting: SettingValue = DirectorySetting::new(
+                        dir.to_string_lossy().to_string(),
+                        root_config.clone(),
+                        &mut String::default(),
+                    )
+                    .into();
+
+                    config.settings.push(data_local_setting);
 
                     let dir_meta = metadata(dir);
                     if !dir_meta.is_ok() {
@@ -137,15 +146,30 @@ impl OpenMWConfiguration {
                 }
 
                 if let Some(dir) = &config.resources {
-                    config.data_directories.insert(0, dir.join("vfs-mw"));
-                    config.data_directories.insert(0, dir.join("vfs"))
+                    let morrowind_vfs: SettingValue = DirectorySetting::new(
+                        dir.join("vfs-mw").to_string_lossy().to_string(),
+                        root_config.clone(),
+                        &mut String::default(),
+                    )
+                    .into();
+
+                    let engine_vfs: SettingValue = DirectorySetting::new(
+                        dir.join("vfs").to_string_lossy().to_string(),
+                        root_config,
+                        &mut String::default(),
+                    )
+                    .into();
+
+                    config.settings.insert(0, morrowind_vfs);
+                    config.settings.insert(0, engine_vfs);
                 }
 
                 util::debug_log(format!("{:#?}\n{:#?}", config.settings, config.sub_configs));
 
-                config.settings.iter().for_each(
-                    |setting_value| println!("{setting_value}"),
-                );
+                config
+                    .settings
+                    .iter()
+                    .for_each(|setting_value| println!("{setting_value}"));
 
                 Ok(config)
             }
@@ -195,13 +219,41 @@ impl OpenMWConfiguration {
     /// Data directories are the bulk of an OpenMW Configuration's contents,
     /// Composing the list of files from which a VFS is constructed.
     /// For a VFS implementation, see: https://github.com/magicaldave/vfstool/tree/main/vfstool_lib
-    pub fn data_directories(&self) -> &Vec<PathBuf> {
-        &self.data_directories
+    ///
+    /// Calling this function will give the post-parsed versions of directories defined by an openmw.cfg,
+    /// So the real ones may easily be iterated and loaded.
+    /// There is not actually validation anywhere in the crate that DirectorySettings refer to a directory which actually exists.
+    /// This is according to the openmw.cfg specification and doesn't technically break anything but should be considered when using these paths.
+    pub fn data_directories(&self) -> Vec<&PathBuf> {
+        self.settings
+            .iter()
+            .filter_map(|setting| match setting {
+                SettingValue::DataDirectory(data_dir) => Some(data_dir.parsed()),
+                _ => None,
+            })
+            .collect()
     }
 
     /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_data_directories(&mut self, dirs: Vec<PathBuf>) {
-        self.data_directories = dirs
+    pub fn set_data_directories(&mut self, dirs: Option<Vec<PathBuf>>) {
+        self.settings.retain(|setting| match setting {
+            SettingValue::DataDirectory(_) => false,
+            _ => true,
+        });
+
+        if let Some(dirs) = dirs {
+            let config_path = self.user_config_path();
+            let mut empty = String::default();
+
+            dirs.iter().for_each(|dir| {
+                self.settings
+                    .push(SettingValue::DataDirectory(DirectorySetting::new(
+                        dir.to_string_lossy(),
+                        config_path.clone(),
+                        &mut empty,
+                    )))
+            })
+        }
     }
 
     /// Fallback entries are k/v pairs baked into the value side of k/v pairs in `fallback=` entries of openmw.cfg
@@ -280,10 +332,6 @@ impl OpenMWConfiguration {
             let value = tokens[1].trim().to_string();
 
             match key {
-                "data" => {
-                    let dir = strings::parse_data_directory(&config_dir, value);
-                    self.data_directories.push(dir);
-                }
                 "content" => {
                     if self.content_files.contains(&value) {
                         bail_config!(duplicate_content_file, value, config_dir);
@@ -316,6 +364,9 @@ impl OpenMWConfiguration {
                     config_dir,
                     &mut queued_comment,
                 ))?)),
+                "data" => {
+                    insert_dir_setting!(self, DataDirectory, value, config_dir, &mut queued_comment)
+                }
                 "resources" => {
                     insert_dir_setting!(self, Resources, value, config_dir, &mut queued_comment)
                 }
@@ -327,7 +378,7 @@ impl OpenMWConfiguration {
                 }
                 "replace" => match value.to_lowercase().as_str() {
                     "content" => self.content_files = Vec::new(),
-                    "data" => self.data_directories = Vec::new(),
+                    "data" => self.set_data_directories(None),
                     "fallback" => self.game_settings = HashMap::new(),
                     "fallback-archives" => self.fallback_archives = Vec::new(),
                     "data-local" => self.set_data_local(None),
@@ -401,14 +452,6 @@ impl OpenMWConfiguration {
         for archive in &self.fallback_archives {
             strings::write_comments(comments.remove(archive.as_str()), &mut config_string);
             strings::fallback_archive(&mut config_string, &archive)?;
-        }
-
-        for dir in &self.data_directories {
-            strings::write_comments(
-                comments.remove(&dir.display().to_string()),
-                &mut config_string,
-            );
-            strings::data_directory(&mut config_string, &dir)?;
         }
 
         // Content files
@@ -540,7 +583,7 @@ impl fmt::Display for OpenMWConfiguration {
         }
 
         // Data directories
-        for dir in &self.data_directories {
+        for dir in self.data_directories() {
             writeln!(f, "data={}", dir.display())?;
         }
 
