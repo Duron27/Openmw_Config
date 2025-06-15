@@ -1,5 +1,5 @@
 mod config;
-pub use config::OpenMWConfiguration;
+pub use config::{ error::ConfigError, OpenMWConfiguration };
 
 pub(crate) trait GameSetting: std::fmt::Display {
     fn meta(&self) -> &GameSettingMeta;
@@ -8,7 +8,6 @@ pub(crate) trait GameSetting: std::fmt::Display {
 #[derive(Debug, Clone)]
 pub struct GameSettingMeta {
     source_config: std::path::PathBuf,
-    
 }
 
 const NO_CONFIG_DIR: &str = "FAILURE: COULD NOT READ CONFIG DIRECTORY";

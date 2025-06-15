@@ -11,6 +11,9 @@ use directorysetting::DirectorySetting;
 mod gamesetting;
 use gamesetting::GameSettingType;
 
+use crate::{ConfigError, bail_config};
+
+pub mod error;
 mod strings;
 mod util;
 
@@ -37,20 +40,10 @@ pub struct OpenMWConfiguration {
 }
 
 impl OpenMWConfiguration {
-    pub fn new(path: Option<PathBuf>) -> Result<Self, String> {
+    pub fn new(path: Option<PathBuf>) -> Result<Self, ConfigError> {
         let mut config = OpenMWConfiguration::default();
         let root_config = match path {
-            Some(path) => {
-                if path.is_file() {
-                    path
-                } else if path.is_dir() {
-                    path.join("openmw.cfg")
-                } else {
-                    return Err(format!(
-                        "[CRITICAL FAILURE]: Provided openmw.cfg was neither a directory nor a file. PLEASE report this issue in the OpenMW Discord!"
-                    ));
-                }
-            }
+            Some(path) => util::input_config_path(&path)?,
             None => crate::default_config_path().join("openmw.cfg"),
         };
 
@@ -194,35 +187,17 @@ impl OpenMWConfiguration {
         &self.sub_configs
     }
 
-    /// Transposes an input directory or file path to an openmw.cfg path
-    /// Maybe could do with some additional validation
-    fn input_config_path(&self, config_dir: &Path) -> Result<PathBuf, String> {
-        if config_dir.is_file() {
-            Ok(config_dir.to_path_buf())
-        } else if config_dir.is_dir() {
-            Ok(config_dir.join("openmw.cfg"))
-        } else {
-            Err(format!(
-                "Unable to determine whether {config_dir:?} was a file or directory, refusing to read config!"
-            ))
-        }
-    }
-
-    fn load(&mut self, config_dir: &Path) -> Result<(), String> {
-        let config_path = self.input_config_path(config_dir)?;
+    fn load(&mut self, config_dir: &Path) -> Result<(), ConfigError> {
+        let config_path = util::input_config_path(config_dir)?;
 
         util::debug_log(format!("BEGIN CONFIG PARSING: {config_path:?}"));
 
         if !config_path.exists() {
-            return Err(format!(
-                "openmw.cfg does not exist at the path {:?}",
-                config_path
-            ));
+            bail_config!(cannot_find, config_path);
         }
 
         let mut sub_configs = Vec::new();
-        let lines =
-            read_to_string(&config_path).map_err(|e| format!("Failed to read config: {}", e))?;
+        let lines = read_to_string(&config_path)?;
 
         let mut comment_queue: Vec<String> = Vec::new();
 
@@ -252,9 +227,7 @@ impl OpenMWConfiguration {
                 }
                 "content" => {
                     if self.content_files.contains(&value) {
-                        return Err(format!(
-                            "{value} was listed as a content file by two configurations! The second one was: {config_dir:?}",
-                        ));
+                        bail_config!(duplicate_content_file, value, config_dir);
                     }
                     self.content_files.push(value);
                 }
@@ -262,21 +235,9 @@ impl OpenMWConfiguration {
                     self.fallback_archives.push(value);
                 }
                 "fallback" => {
-                    let tokens: Vec<&str> = value.splitn(2, ',').collect();
-
-                    if tokens.len() < 2 {
-                        return Err(format!(
-                            "ERROR: Invalid fallback= value {value} found in the openmw.cfg in: {config_dir:?}"
-                        ));
-                    }
-
                     self.game_settings.insert(
                         tokens[0].to_string(),
-                        gamesetting::GameSettingType::from((
-                            tokens[0].to_string(),
-                            tokens[1].to_string(),
-                            config_dir.to_owned(),
-                        )),
+                        gamesetting::GameSettingType::try_from((value, config_dir.to_owned()))?,
                     );
                 }
                 "data-local" => {
@@ -348,13 +309,7 @@ impl OpenMWConfiguration {
             self.sub_configs.push(config.clone());
 
             if config.join("openmw.cfg").is_file() {
-                // dbg!("READING NEXT CONFIG: ", config.join("openmw.cfg"), &self);
-                if let Err(e) = self.load(Path::new(&config)) {
-                    return Err(format!(
-                        "WARNING: Sub-configuration {:?} failed to load with error: {}",
-                        config_dir, e
-                    ));
-                }
+                self.load(&config)?;
             }
         }
 

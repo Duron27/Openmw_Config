@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::{GameSetting, GameSettingMeta};
+use crate::{ConfigError, GameSetting, GameSettingMeta, bail_config};
 
 #[derive(Debug, Clone)]
 pub struct ColorGameSetting {
@@ -85,25 +85,71 @@ impl GameSetting for GameSettingType {
     }
 }
 
-impl From<(String, String, std::path::PathBuf)> for GameSettingType {
-    fn from((key, value, source_config): (String, String, std::path::PathBuf)) -> Self {
+impl PartialEq for GameSettingType {
+    fn eq(&self, other: &Self) -> bool {
+        use GameSettingType::*;
+
+        match (self, other) {
+            (Color(a), Color(b)) => a.key == b.key,
+            (String(a), String(b)) => a.key == b.key,
+            (Float(a), Float(b)) => a.key == b.key,
+            (Int(a), Int(b)) => a.key == b.key,
+            // Mismatched types should never be considered equal
+            _ => false,
+        }
+    }
+}
+
+impl Eq for GameSettingType {}
+
+impl TryFrom<(String, std::path::PathBuf)> for GameSettingType {
+    type Error = ConfigError;
+
+    fn try_from(
+        (original_value, source_config): (String, std::path::PathBuf),
+    ) -> Result<Self, ConfigError> {
+        let tokens: Vec<&str> = original_value.splitn(2, ',').collect();
+
+        if tokens.len() < 2 {
+            bail_config!(invalid_game_setting, original_value, source_config);
+        }
+
+        let key = tokens[0].to_string();
+        let value = tokens[1].to_string();
+
         let meta = GameSettingMeta { source_config };
 
         if let Some(color) = parse_color_value(&value) {
-            return GameSettingType::Color(ColorGameSetting { meta, key, value: color });
+            return Ok(GameSettingType::Color(ColorGameSetting {
+                meta,
+                key,
+                value: color,
+            }));
         }
 
         if value.contains('.') {
             if let Ok(f) = value.parse::<f64>() {
-                return GameSettingType::Float(FloatGameSetting { meta, key, value: f });
+                return Ok(GameSettingType::Float(FloatGameSetting {
+                    meta,
+                    key,
+                    value: f,
+                }));
             }
         }
 
         if let Ok(i) = value.parse::<i64>() {
-            return GameSettingType::Int(IntGameSetting { meta, key, value: i });
+            return Ok(GameSettingType::Int(IntGameSetting {
+                meta,
+                key,
+                value: i,
+            }));
         }
 
-        GameSettingType::String(StringGameSetting { meta, key, value })
+        Ok(GameSettingType::String(StringGameSetting {
+            meta,
+            key,
+            value,
+        }))
     }
 }
 

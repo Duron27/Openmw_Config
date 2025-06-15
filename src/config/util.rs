@@ -1,12 +1,10 @@
-use std::{fs::metadata, path::PathBuf};
-
 pub fn debug_log(message: String) {
     if std::env::var("CFG_DEBUG").is_ok() {
         println!("[CONFIG DEBUG]: {message}")
     }
 }
 
-pub fn user_config_path(sub_configs: &Vec<PathBuf>, fallthrough_dir: &PathBuf) -> PathBuf {
+pub fn user_config_path(sub_configs: &Vec<std::path::PathBuf>, fallthrough_dir: &std::path::PathBuf) -> std::path::PathBuf {
     // dbg!(&self.sub_configs);
     sub_configs
         .iter()
@@ -15,8 +13,8 @@ pub fn user_config_path(sub_configs: &Vec<PathBuf>, fallthrough_dir: &PathBuf) -
         .to_owned()
 }
 
-pub fn user_config_writable(path: &PathBuf) -> bool {
-    metadata(path)
+pub fn user_config_writable(path: &std::path::PathBuf) -> bool {
+    std::fs::metadata(path)
         .map(|m| m.permissions().readonly() == false)
         .unwrap_or(false)
 }
@@ -29,5 +27,23 @@ pub fn can_write_to_dir<P: AsRef<std::path::Path>>(dir: &P) -> bool {
             true
         }
         Err(_) => false,
+    }
+}
+
+/// Transposes an input directory or file path to an openmw.cfg path
+/// Maybe could do with some additional validation
+pub fn input_config_path(config_path: &std::path::Path) -> Result<std::path::PathBuf, crate::ConfigError> {
+    if config_path.is_file() {
+        Ok(config_path.to_path_buf())
+    } else if config_path.is_dir() {
+        let maybe_config = config_path.join("openmw.cfg");
+
+        if std::fs::metadata(maybe_config).is_ok() {
+            Ok(config_path.join("openmw.cfg"))
+        } else {
+            crate::config::bail_config!(cannot_find, config_path);
+        }
+    } else {
+        crate::config::bail_config!(not_file_or_directory, config_path);
     }
 }
