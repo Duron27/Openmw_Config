@@ -5,48 +5,53 @@ use crate::{GameSetting, GameSettingMeta};
 #[derive(Debug, Clone)]
 pub struct ColorGameSetting {
     meta: GameSettingMeta,
+    key: String,
     value: (u8, u8, u8),
 }
 
 impl std::fmt::Display for ColorGameSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (r, g, b) = self.value;
-        writeln!(f, "{}", format!("{r},{g},{b}"))
+        writeln!(f, "{}", format!("fallback={},{r},{g},{b}", self.key))
     }
 }
+
 #[derive(Debug, Clone)]
 pub struct StringGameSetting {
     meta: GameSettingMeta,
+    key: String,
     value: String,
 }
 
 impl std::fmt::Display for StringGameSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", format!("{}", self.value))
+        writeln!(f, "{}", format!("fallback={},{}", self.key, self.value))
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct FloatGameSetting {
     meta: GameSettingMeta,
+    key: String,
     value: f64,
 }
 
 impl std::fmt::Display for FloatGameSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", format!("{}", self.value))
+        writeln!(f, "{}", format!("fallback={},{}", self.key, self.value))
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct IntGameSetting {
     meta: GameSettingMeta,
+    key: String,
     value: i64,
 }
 
 impl std::fmt::Display for IntGameSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", format!("{}", self.value))
+        writeln!(f, "{}", format!("fallback={},{}", self.key, self.value))
     }
 }
 
@@ -80,25 +85,25 @@ impl GameSetting for GameSettingType {
     }
 }
 
-impl From<(String, std::path::PathBuf)> for GameSettingType {
-    fn from((value, source_config): (String, std::path::PathBuf)) -> Self {
+impl From<(String, String, std::path::PathBuf)> for GameSettingType {
+    fn from((key, value, source_config): (String, String, std::path::PathBuf)) -> Self {
         let meta = GameSettingMeta { source_config };
 
         if let Some(color) = parse_color_value(&value) {
-            return GameSettingType::Color(ColorGameSetting { meta, value: color });
+            return GameSettingType::Color(ColorGameSetting { meta, key, value: color });
         }
 
         if value.contains('.') {
             if let Ok(f) = value.parse::<f64>() {
-                return GameSettingType::Float(FloatGameSetting { meta, value: f });
+                return GameSettingType::Float(FloatGameSetting { meta, key, value: f });
             }
         }
 
         if let Ok(i) = value.parse::<i64>() {
-            return GameSettingType::Int(IntGameSetting { meta, value: i });
+            return GameSettingType::Int(IntGameSetting { meta, key, value: i });
         }
 
-        GameSettingType::String(StringGameSetting { meta, value })
+        GameSettingType::String(StringGameSetting { meta, key, value })
     }
 }
 
