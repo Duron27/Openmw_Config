@@ -1,9 +1,11 @@
 use std::{
     collections::HashMap,
-    fmt::{self, write},
-    fs::{File, OpenOptions, create_dir_all, metadata, read_to_string, remove_file},
+    fmt::{self},
+    fs::{OpenOptions, create_dir_all, metadata, read_to_string},
     path::{Path, PathBuf},
 };
+
+use crate::{ConfigError, bail_config};
 
 mod directorysetting;
 use directorysetting::DirectorySetting;
@@ -11,11 +13,47 @@ use directorysetting::DirectorySetting;
 mod gamesetting;
 use gamesetting::GameSettingType;
 
-use crate::{ConfigError, bail_config};
+mod encodingsetting;
+use encodingsetting::EncodingSetting;
 
 pub mod error;
+#[macro_use]
+mod singletonsetting;
 mod strings;
 mod util;
+
+#[derive(Clone, Debug)]
+pub enum SettingValue {
+    DataDirectory(DirectorySetting),
+    GameSetting(GameSettingType),
+    UserData(DirectorySetting),
+    DataLocal(DirectorySetting),
+    Resources(DirectorySetting),
+    Encoding(EncodingSetting),
+}
+
+impl From<GameSettingType> for SettingValue {
+    fn from(g: GameSettingType) -> Self {
+        SettingValue::GameSetting(g)
+    }
+}
+
+impl From<DirectorySetting> for SettingValue {
+    fn from(d: DirectorySetting) -> Self {
+        SettingValue::DataDirectory(d)
+    }
+}
+
+macro_rules! insert_dir_setting {
+    ($self:ident, $variant:ident, $value:expr, $config_dir:expr) => {{
+        $self
+            .settings
+            .push(SettingValue::$variant(DirectorySetting::new(
+                $value,
+                Some($config_dir.to_path_buf()),
+            )));
+    }};
+}
 
 /// Core struct representing the composed OpenMW configuration,
 /// After it has been fully resolved.
@@ -37,6 +75,7 @@ pub struct OpenMWConfiguration {
     /// Orphaned or trailing comments are preserved at the end of the configuration.
     trailing_comments: HashMap<String, Vec<String>>,
     game_settings: HashMap<String, GameSettingType>,
+    settings: Vec<SettingValue>,
 }
 
 impl OpenMWConfiguration {
@@ -70,10 +109,7 @@ impl OpenMWConfiguration {
                     config.data_directories.insert(0, dir.join("vfs"))
                 }
 
-                util::debug_log(format!(
-                    "{:#?}\n{:#?}",
-                    config.game_settings, config.sub_configs
-                ));
+                util::debug_log(format!("{:#?}\n{:#?}", config.settings, config.sub_configs));
 
                 Ok(config)
             }
@@ -83,6 +119,29 @@ impl OpenMWConfiguration {
     /// Path to the highest-level configuration *directory*
     pub fn user_config_path(&self) -> PathBuf {
         util::user_config_path(&self.sub_configs, &self.root_config)
+    }
+
+    impl_singleton_setting! {
+        UserData => {
+            get: userdata,
+            set: set_userdata,
+            in_type: DirectorySetting
+        },
+        Resources => {
+            get: resources,
+            set: set_resources,
+            in_type: DirectorySetting
+        },
+        DataLocal => {
+            get: data_local,
+            set: set_data_local,
+            in_type: DirectorySetting
+        },
+        Encoding => {
+            get: encoding,
+            set: set_encoding,
+            in_type: EncodingSetting
+        }
     }
 
     /// Content files are the actual *mods* or plugins which are created by either OpenCS or Bethesda's construction set
@@ -134,42 +193,6 @@ impl OpenMWConfiguration {
     /// Path to the openmw.cfg file which is the root of the configuration chain
     pub fn root_config(&self) -> &PathBuf {
         &self.root_config
-    }
-
-    /// Data-local is a special directory which, if defined, always has the highest priority over all data directories,
-    /// thus overwriting their files
-    pub fn data_local(&self) -> &Option<PathBuf> {
-        &self.data_local
-    }
-
-    /// Override the data-local dir
-    /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_data_local(&mut self, dir: PathBuf) {
-        self.data_local = Some(dir)
-    }
-
-    /// Resources is a special directory which functions the opposite of data-local: It always has the *lowest* priority, to load necessary files
-    /// but potentially be overridden by mods or other games
-    pub fn resources_dir(&self) -> &Option<PathBuf> {
-        &self.resources
-    }
-
-    /// Overrides the resources directory
-    /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_resources_dir(&mut self, dir: PathBuf) {
-        self.resources = Some(dir)
-    }
-
-    /// Userdata is a special directory in which saves, screenshots, and other user-specific miscellany go
-    /// which are *not* related to configuration, such as navmesh.db
-    pub fn userdata_dir(&self) -> &Option<DirectorySetting> {
-        &self.userdata
-    }
-
-    /// Overrides the userdata directory
-    /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_userdata_dir(&mut self, dir: DirectorySetting) {
-        self.userdata = Some(dir)
     }
 
     /// In order of priority, the list of all openmw.cfg files which were loaded by the configuration chain after the root.
@@ -235,13 +258,8 @@ impl OpenMWConfiguration {
                     self.fallback_archives.push(value);
                 }
                 "fallback" => {
-                    self.game_settings.insert(
-                        tokens[0].to_string(),
-                        gamesetting::GameSettingType::try_from((value, config_dir.to_owned()))?,
-                    );
-                }
-                "data-local" => {
-                    self.data_local = Some(strings::parse_data_directory(&config_dir, value));
+                    self.settings
+                        .push(GameSettingType::try_from((value, config_dir.to_owned()))?.into());
                 }
                 "config" => {
                     let config_dir = if config_dir.is_dir() {
@@ -255,12 +273,14 @@ impl OpenMWConfiguration {
 
                     sub_configs.push(config_path);
                 }
-                "resources" => {
-                    self.resources = Some(strings::parse_data_directory(&config_dir, value));
+                "encoding" => {
+                    self.set_encoding(Some(
+                        EncodingSetting::try_from((value, config_dir))?
+                    ))
                 }
-                "userdata" => {
-                    self.userdata = Some(DirectorySetting::from((value, config_dir.to_path_buf())));
-                }
+                "resources" => insert_dir_setting!(self, Resources, value, config_dir),
+                "userdata" => insert_dir_setting!(self, UserData, value, config_dir),
+                "data-local" => insert_dir_setting!(self, DataLocal, value, config_dir),
                 "replace" => match value.to_lowercase().as_str() {
                     "content" => self.content_files = Vec::new(),
                     "data" => self.data_directories = Vec::new(),

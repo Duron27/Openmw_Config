@@ -5,7 +5,7 @@ pub(crate) trait GameSetting: std::fmt::Display {
     fn meta(&self) -> &GameSettingMeta;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GameSettingMeta {
     source_config: std::path::PathBuf,
 }

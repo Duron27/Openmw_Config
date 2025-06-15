@@ -35,6 +35,26 @@ impl From<(String, PathBuf)> for DirectorySetting {
 }
 
 impl DirectorySetting {
+    pub fn new<S: Into<String>>(value: S, source_config: Option<PathBuf>) -> Self {
+        let original = value.into();
+        let parsed = strings::parse_data_directory(
+            source_config
+                .as_ref()
+                .unwrap_or(&PathBuf::from("<internal>")),
+            original.clone(),
+        );
+
+        let meta = crate::GameSettingMeta {
+            source_config: source_config.unwrap_or_else(|| PathBuf::from("<internal>")),
+        };
+
+        Self {
+            original,
+            parsed,
+            meta,
+        }
+    }
+
     pub fn original(&self) -> &String {
         &self.original
     }
