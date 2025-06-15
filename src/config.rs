@@ -7,7 +7,10 @@ use std::{
 
 mod directorysetting;
 use directorysetting::DirectorySetting;
+
 mod gamesetting;
+use gamesetting::GameSettingType;
+
 mod strings;
 mod util;
 
@@ -20,7 +23,6 @@ pub struct OpenMWConfiguration {
     sub_configs: Vec<PathBuf>,
     data_directories: Vec<PathBuf>,
     content_files: Vec<String>,
-    fallback_entries: HashMap<String, String>,
     fallback_archives: Vec<String>,
     data_local: Option<PathBuf>,
     userdata: Option<DirectorySetting>,
@@ -31,7 +33,7 @@ pub struct OpenMWConfiguration {
     comments: HashMap<String, Vec<String>>,
     /// Orphaned or trailing comments are preserved at the end of the configuration.
     trailing_comments: HashMap<String, Vec<String>>,
-    game_settings: HashMap<String, gamesetting::GameSettingType>,
+    game_settings: HashMap<String, GameSettingType>,
 }
 
 impl OpenMWConfiguration {
@@ -117,13 +119,13 @@ impl OpenMWConfiguration {
     /// Fallback entries are k/v pairs baked into the value side of k/v pairs in `fallback=` entries of openmw.cfg
     /// They are used to express settings which are defined in Morrowind.ini for things such as:
     /// weather, lighting behaviors, UI Colors, and levelup messages
-    pub fn fallback_entries(&self) -> &HashMap<String, String> {
-        &self.fallback_entries
+    pub fn game_settings(&self) -> &HashMap<String, GameSettingType> {
+        &self.game_settings
     }
 
     /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_fallback_entries(&mut self, entries: HashMap<String, String>) {
-        self.fallback_entries = entries
+    pub fn set_game_settings(&mut self, entries: HashMap<String, GameSettingType>) {
+        self.game_settings = entries
     }
 
     /// List of filenames of Bethesda Archive files to use in the composed configuration
@@ -539,8 +541,8 @@ impl fmt::Display for OpenMWConfiguration {
         }
 
         // Fallback entries
-        for (key, value) in &self.fallback_entries {
-            writeln!(f, "fallback={},{}", key, value)?;
+        for (_, value) in &self.game_settings {
+            writeln!(f, "{value}")?;
         }
 
         Ok(())
