@@ -37,3 +37,7 @@ pub fn default_userdata_path() -> std::path::PathBuf {
             .join("openmw")
     }
 }
+
+pub fn default_data_local_path() -> std::path::PathBuf {
+    default_userdata_path().join("data")
+}
