@@ -8,6 +8,7 @@ pub(crate) trait GameSetting: std::fmt::Display {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct GameSettingMeta {
     source_config: std::path::PathBuf,
+    comment: String,
 }
 
 const NO_CONFIG_DIR: &str = "FAILURE: COULD NOT READ CONFIG DIRECTORY";
@@ -38,6 +39,9 @@ pub fn default_userdata_path() -> std::path::PathBuf {
     }
 }
 
+/// Path to the last-loading directory of openmw.cfg,
+/// As defined by the engine's defaults
+/// This directory will override all others in the load order
 pub fn default_data_local_path() -> std::path::PathBuf {
     default_userdata_path().join("data")
 }

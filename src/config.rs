@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
-    fmt::{self},
+    fmt::{self, Display},
     fs::{OpenOptions, create_dir_all, metadata, read_to_string},
     path::{Path, PathBuf},
 };
 
-use crate::{ConfigError, bail_config};
+use crate::{ConfigError, GameSetting, bail_config};
 
 mod directorysetting;
 use directorysetting::DirectorySetting;
@@ -32,6 +32,37 @@ pub enum SettingValue {
     Encoding(EncodingSetting),
 }
 
+impl Display for SettingValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let str = match self {
+            SettingValue::Encoding(encoding_setting) => encoding_setting.to_string(),
+            SettingValue::UserData(userdata_setting) => format!(
+                "{}userdata={}",
+                userdata_setting.meta().comment,
+                userdata_setting.original()
+            ),
+            SettingValue::DataLocal(data_local_setting) => format!(
+                "{}data-local={}",
+                data_local_setting.meta().comment,
+                data_local_setting.original(),
+            ),
+            SettingValue::Resources(resources_setting) => format!(
+                "{}resources={}",
+                resources_setting.meta().comment,
+                resources_setting.original()
+            ),
+            SettingValue::GameSetting(game_setting) => game_setting.to_string(),
+            SettingValue::DataDirectory(data_directory) => format!(
+                "{}data={}",
+                data_directory.meta().comment,
+                data_directory.original()
+            ),
+        };
+
+        write!(f, "{str}")
+    }
+}
+
 impl From<GameSettingType> for SettingValue {
     fn from(g: GameSettingType) -> Self {
         SettingValue::GameSetting(g)
@@ -45,12 +76,13 @@ impl From<DirectorySetting> for SettingValue {
 }
 
 macro_rules! insert_dir_setting {
-    ($self:ident, $variant:ident, $value:expr, $config_dir:expr) => {{
+    ($self:ident, $variant:ident, $value:expr, $config_dir:expr, $comment:expr) => {{
         $self
             .settings
             .push(SettingValue::$variant(DirectorySetting::new(
                 $value,
-                Some($config_dir.to_path_buf()),
+                $config_dir.to_path_buf(),
+                $comment,
             )));
     }};
 }
@@ -73,7 +105,7 @@ pub struct OpenMWConfiguration {
     /// Maps k/v pairs to all preceding comments during parsing.
     comments: HashMap<String, Vec<String>>,
     /// Orphaned or trailing comments are preserved at the end of the configuration.
-    trailing_comments: HashMap<String, Vec<String>>,
+    trailing_comments: HashMap<String, String>,
     game_settings: HashMap<String, GameSettingType>,
     settings: Vec<SettingValue>,
 }
@@ -110,6 +142,10 @@ impl OpenMWConfiguration {
                 }
 
                 util::debug_log(format!("{:#?}\n{:#?}", config.settings, config.sub_configs));
+
+                config.settings.iter().for_each(
+                    |setting_value| println!("{setting_value}"),
+                );
 
                 Ok(config)
             }
@@ -222,26 +258,26 @@ impl OpenMWConfiguration {
         let mut sub_configs = Vec::new();
         let lines = read_to_string(&config_path)?;
 
-        let mut comment_queue: Vec<String> = Vec::new();
+        let mut queued_comment = String::new();
 
         for line in lines.lines() {
             let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                comment_queue.push(line.to_string());
+
+            if trimmed.is_empty() {
+                continue;
+            } else if trimmed.starts_with('#') {
+                queued_comment.push_str(line);
+                queued_comment.push('\n');
                 continue;
             }
 
             let tokens: Vec<&str> = trimmed.splitn(2, '=').collect();
             if tokens.len() < 2 {
-                comment_queue.push(line.to_string());
-                continue;
+                bail_config!(invalid_line, trimmed.into(), config_path);
             }
 
             let key = tokens[0].trim();
             let value = tokens[1].trim().to_string();
-
-            // HACK: Clone the value to we can move it into other functions. I do not care right now.
-            let value_key = value.clone();
 
             match key {
                 "data" => {
@@ -258,45 +294,50 @@ impl OpenMWConfiguration {
                     self.fallback_archives.push(value);
                 }
                 "fallback" => {
-                    self.settings
-                        .push(GameSettingType::try_from((value, config_dir.to_owned()))?.into());
+                    self.settings.push(
+                        GameSettingType::try_from((
+                            value,
+                            config_dir.to_owned(),
+                            &mut queued_comment,
+                        ))?
+                        .into(),
+                    );
                 }
                 "config" => {
-                    let config_dir = if config_dir.is_dir() {
-                        config_dir
-                    } else {
-                        config_dir.parent().expect("")
-                    }
-                    .to_path_buf();
-
-                    let config_path = strings::parse_data_directory(&config_dir, value.to_owned());
+                    let config_path = strings::parse_data_directory(
+                        &config_path.parent().expect("").to_path_buf(),
+                        value.to_owned(),
+                    );
 
                     sub_configs.push(config_path);
                 }
-                "encoding" => {
-                    self.set_encoding(Some(
-                        EncodingSetting::try_from((value, config_dir))?
-                    ))
+                "encoding" => self.set_encoding(Some(EncodingSetting::try_from((
+                    value,
+                    config_dir,
+                    &mut queued_comment,
+                ))?)),
+                "resources" => {
+                    insert_dir_setting!(self, Resources, value, config_dir, &mut queued_comment)
                 }
-                "resources" => insert_dir_setting!(self, Resources, value, config_dir),
-                "userdata" => insert_dir_setting!(self, UserData, value, config_dir),
-                "data-local" => insert_dir_setting!(self, DataLocal, value, config_dir),
+                "userdata" => {
+                    insert_dir_setting!(self, UserData, value, config_dir, &mut queued_comment)
+                }
+                "data-local" => {
+                    insert_dir_setting!(self, DataLocal, value, config_dir, &mut queued_comment)
+                }
                 "replace" => match value.to_lowercase().as_str() {
                     "content" => self.content_files = Vec::new(),
                     "data" => self.data_directories = Vec::new(),
                     "fallback" => self.game_settings = HashMap::new(),
                     "fallback-archives" => self.fallback_archives = Vec::new(),
-                    "data-local" => self.data_local = None,
-                    "resources" => self.resources = None,
-                    "userdata" => self.userdata = None,
+                    "data-local" => self.set_data_local(None),
+                    "resources" => self.set_resources(None),
+                    "userdata" => self.set_userdata(None),
                     "config" => {
-                        self.content_files = Vec::new();
-                        self.data_directories = Vec::new();
-                        self.game_settings = HashMap::new();
-                        self.fallback_archives = Vec::new();
-                        self.data_local = None;
-                        self.resources = None;
-                        self.userdata = None;
+                        self.settings.clear();
+                        // self.content_files = Vec::new();
+                        // self.data_directories = Vec::new();
+                        // self.fallback_archives = Vec::new();
                     }
                     _ => {
                         // eprintln!("Warning: Unrecognized replacement option: {value}")
@@ -307,11 +348,6 @@ impl OpenMWConfiguration {
                     self.generic.insert(key.to_string(), value);
                 }
             }
-
-            if !comment_queue.is_empty() {
-                self.comments.insert(value_key, comment_queue.clone());
-                comment_queue.clear();
-            }
         }
 
         // Store the trailing comments for a given openmw.cfg
@@ -320,7 +356,7 @@ impl OpenMWConfiguration {
         // comments according to what configuration file they belong to
         self.trailing_comments.insert(
             config_path.to_string_lossy().to_ascii_lowercase(),
-            comment_queue,
+            queued_comment,
         );
 
         // A configuration entry doesn't necessarily *need* to have an openmw.cfg as the system is more complex than that
@@ -398,11 +434,8 @@ impl OpenMWConfiguration {
             };
 
             config_string.push_str(&format!("\n# Trailing comments defined by: {config} #\n"));
-
-            for comment in comments {
-                config_string.push_str(comment.as_str());
-                config_string.push('\n');
-            }
+            config_string.push_str(comments);
+            config_string.push('\n');
         }
 
         let mut file = OpenOptions::new()

@@ -32,6 +32,13 @@ macro_rules! config_err {
         }
     };
 
+    (invalid_line, $value:expr, $config_path:expr) => {
+        $crate::ConfigError::InvalidLine {
+            value: $value,
+            config_path: $config_path,
+        }
+    };
+
     // Parse error: single string
     (parse, $msg:expr) => {
         $crate::ConfigError::Parse($msg.to_string())
@@ -57,6 +64,7 @@ pub enum ConfigError {
     DuplicateContentFile { file: String, config_path: PathBuf },
     InvalidGameSetting { value: String, config_path: PathBuf },
     BadEncoding { value: String, config_path: PathBuf },
+    InvalidLine { value: String, config_path: PathBuf },
     Io(std::io::Error),
     NotFileOrDirectory(PathBuf),
     CannotFind(PathBuf),
@@ -76,19 +84,45 @@ impl fmt::Display for ConfigError {
             ConfigError::Io(e) => write!(f, "IO error: {}", e),
             ConfigError::NotFileOrDirectory(config_path) => write!(
                 f,
-                "Unable to determine whether {config_path:?} was a file or directory, refusing to read."
+                "{}",
+                format!(
+                    "Unable to determine whether {} was a file or directory, refusing to read.",
+                    config_path.display()
+                )
             ),
             ConfigError::CannotFind(config_path) => {
-                write!(f, "An openmw.cfg does not exist at: {config_path:?}")
+                write!(
+                    f,
+                    "{}",
+                    format!("An openmw.cfg does not exist at: {}", config_path.display())
+                )
             }
             ConfigError::DuplicateContentFile { file, config_path } => write!(
                 f,
-                "{file} has appeared in the content files list twice. Its second occurence was in: {config_path:?}",
+                "{}",
+                format!(
+                    "{file} has appeared in the content files list twice. Its second occurence was in: {}",
+                    config_path.display()
+                ),
             ),
             ConfigError::BadEncoding { value, config_path } => {
                 write!(
                     f,
-                    "Invalid encoding type: {value} in config file {config_path:?}",
+                    "{}",
+                    format!(
+                        "Invalid encoding type: {value} in config file {}",
+                        config_path.display()
+                    ),
+                )
+            }
+            ConfigError::InvalidLine { value, config_path } => {
+                write!(
+                    f,
+                    "{}",
+                    format!(
+                        "Invalid pair in openmw.cfg {value} was defined by {}",
+                        config_path.display()
+                    )
                 )
             }
         }

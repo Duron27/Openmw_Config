@@ -12,7 +12,11 @@ pub struct ColorGameSetting {
 impl std::fmt::Display for ColorGameSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (r, g, b) = self.value;
-        writeln!(f, "{}", format!("fallback={},{r},{g},{b}", self.key))
+        write!(
+            f,
+            "{}",
+            format!("{}fallback={},{r},{g},{b}", self.meta.comment, self.key)
+        )
     }
 }
 
@@ -25,7 +29,14 @@ pub struct StringGameSetting {
 
 impl std::fmt::Display for StringGameSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", format!("fallback={},{}", self.key, self.value))
+        write!(
+            f,
+            "{}",
+            format!(
+                "{}fallback={},{}",
+                self.meta.comment, self.key, self.value
+            )
+        )
     }
 }
 
@@ -38,7 +49,14 @@ pub struct FloatGameSetting {
 
 impl std::fmt::Display for FloatGameSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", format!("fallback={},{}", self.key, self.value))
+        write!(
+            f,
+            "{}",
+            format!(
+                "{}fallback={},{}",
+                self.meta.comment, self.key, self.value
+            )
+        )
     }
 }
 
@@ -51,7 +69,14 @@ pub struct IntGameSetting {
 
 impl std::fmt::Display for IntGameSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(f, "{}", format!("fallback={},{}", self.key, self.value))
+        write!(
+            f,
+            "{}",
+            format!(
+                "{}fallback={},{}",
+                self.meta.comment, self.key, self.value
+            )
+        )
     }
 }
 
@@ -102,11 +127,11 @@ impl PartialEq for GameSettingType {
 
 impl Eq for GameSettingType {}
 
-impl TryFrom<(String, std::path::PathBuf)> for GameSettingType {
+impl TryFrom<(String, std::path::PathBuf, &mut String)> for GameSettingType {
     type Error = ConfigError;
 
     fn try_from(
-        (original_value, source_config): (String, std::path::PathBuf),
+        (original_value, source_config, queued_comment): (String, std::path::PathBuf, &mut String),
     ) -> Result<Self, ConfigError> {
         let tokens: Vec<&str> = original_value.splitn(2, ',').collect();
 
@@ -117,7 +142,12 @@ impl TryFrom<(String, std::path::PathBuf)> for GameSettingType {
         let key = tokens[0].to_string();
         let value = tokens[1].to_string();
 
-        let meta = GameSettingMeta { source_config };
+        let meta = GameSettingMeta {
+            source_config,
+            comment: queued_comment.clone(),
+        };
+
+        queued_comment.clear();
 
         if let Some(color) = parse_color_value(&value) {
             return Ok(GameSettingType::Color(ColorGameSetting {
