@@ -266,6 +266,16 @@ impl OpenMWConfiguration {
         }
     }
 
+    pub fn set_game_setting(&mut self, new_setting: GameSettingType) {
+        self.settings
+            .retain(|existing_setting| match existing_setting {
+                SettingValue::GameSetting(existing_setting) => existing_setting != &new_setting,
+                _ => true,
+            });
+
+        self.settings.push(SettingValue::GameSetting(new_setting));
+    }
+
     /// Content files are the actual *mods* or plugins which are created by either OpenCS or Bethesda's construction set
     /// These entries only refer to the names and ordering of content files.
     /// vfstool-lib should be used to derive paths
@@ -378,14 +388,13 @@ impl OpenMWConfiguration {
                     self.fallback_archives.push(value);
                 }
                 "fallback" => {
-                    self.settings.push(
-                        GameSettingType::try_from((
-                            value,
-                            config_dir.to_owned(),
-                            &mut queued_comment,
-                        ))?
-                        .into(),
-                    );
+                    let new_setting = GameSettingType::try_from((
+                        value,
+                        config_dir.to_owned(),
+                        &mut queued_comment,
+                    ))?;
+
+                    self.set_game_setting(new_setting);
                 }
                 "encoding" => self.set_encoding(Some(EncodingSetting::try_from((
                     value,
