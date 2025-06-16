@@ -125,6 +125,19 @@ impl PartialEq for GameSettingType {
     }
 }
 
+impl PartialEq<&str> for GameSettingType {
+    fn eq(&self, other: &&str) -> bool {
+        use GameSettingType::*;
+
+        match self {
+            Color(a) => a.key == *other,
+            String(a) => a.key == *other,
+            Float(a) => a.key == *other,
+            Int(a) => a.key == *other,
+        }
+    }
+}
+
 impl Eq for GameSettingType {}
 
 impl TryFrom<(String, std::path::PathBuf, &mut String)> for GameSettingType {
