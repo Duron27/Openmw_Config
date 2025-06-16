@@ -464,6 +464,7 @@ impl OpenMWConfiguration {
             let trimmed = line.trim();
 
             if trimmed.is_empty() {
+                queued_comment.push('\n');
                 continue;
             } else if trimmed.starts_with('#') {
                 queued_comment.push_str(line);
