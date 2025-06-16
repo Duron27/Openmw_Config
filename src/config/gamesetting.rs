@@ -222,3 +222,116 @@ fn parse_color_value(value: &str) -> Option<(u8, u8, u8)> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+
+    fn default_meta() -> GameSettingMeta {
+        GameSettingMeta {
+            source_config: PathBuf::default(),
+            comment: String::default(),
+        }
+    }
+
+    #[test]
+    fn test_value_string_setting() {
+        let setting = GameSettingType::String(StringGameSetting {
+            meta: default_meta(),
+            key: "greeting".into(),
+            value: "hello world".into(),
+        });
+
+        assert_eq!(setting.value(), "hello world");
+    }
+
+    #[test]
+    fn test_value_int_setting() {
+        let setting = GameSettingType::Int(IntGameSetting {
+            meta: default_meta(),
+            key: "MaxEyesOfTodd".into(),
+            value: 3,
+        });
+
+        assert_eq!(setting.value(), "3");
+    }
+
+    #[test]
+    fn test_value_float_setting() {
+        let setting = GameSettingType::Float(FloatGameSetting {
+            meta: default_meta(),
+            key: "FLightAttenuationEnfuckulation".into(),
+            value: 0.75,
+        });
+
+        assert_eq!(setting.value(), "0.75");
+    }
+
+    #[test]
+    fn test_value_color_setting() {
+        let setting = GameSettingType::Color(ColorGameSetting {
+            meta: default_meta(),
+            key: "hud_color".into(),
+            value: (255, 128, 64),
+        });
+
+        assert_eq!(setting.value(), "255,128,64");
+    }
+
+    #[test]
+    fn test_to_string_for_string_setting() {
+        let setting = GameSettingType::String(StringGameSetting {
+            meta: default_meta(),
+            key: "sGreeting".into(),
+            value: "Hello, Nerevar.".into(),
+        });
+
+        assert_eq!(setting.to_string(), "fallback=sGreeting,Hello, Nerevar.");
+    }
+
+    #[test]
+    fn test_to_string_for_int_setting() {
+        let setting = GameSettingType::Int(IntGameSetting {
+            meta: default_meta(),
+            key: "iMaxSpeed".into(),
+            value: 42,
+        });
+
+        assert_eq!(setting.to_string(), "fallback=iMaxSpeed,42");
+    }
+
+    #[test]
+    fn test_to_string_for_float_setting() {
+        let setting = GameSettingType::Float(FloatGameSetting {
+            meta: default_meta(),
+            key: "fJumpHeight".into(),
+            value: 1.75,
+        });
+
+        assert_eq!(setting.to_string(), "fallback=fJumpHeight,1.75");
+    }
+
+    #[test]
+    fn test_to_string_for_color_setting() {
+        let setting = GameSettingType::Color(ColorGameSetting {
+            meta: default_meta(),
+            key: "iHUDColor".into(),
+            value: (128, 64, 255),
+        });
+
+        assert_eq!(setting.to_string(), "fallback=iHUDColor,128,64,255");
+    }
+
+    #[test]
+    fn test_commented_string() {
+        let setting = GameSettingType::Color(ColorGameSetting {
+            meta: GameSettingMeta { source_config: PathBuf::from("$HOME/.config/openmw/openmw.cfg"), comment: String::from("#Monochrome UI Settings\n#\n#\n#\n#######\n##\n##\n##\n") },
+            key: "iHUDColor".into(),
+            value: (128, 64, 255),
+        });
+
+        assert_eq!(setting.to_string(), "#Monochrome UI Settings\n#\n#\n#\n#######\n##\n##\n##\nfallback=iHUDColor,128,64,255");
+    }
+}
