@@ -410,8 +410,7 @@ impl OpenMWConfiguration {
                     &mut queued_comment,
                 ))?)),
                 "config" => {
-                    sub_configs.push((value, queued_comment.clone()));
-                    queued_comment.clear();
+                    sub_configs.push((value, std::mem::take(&mut queued_comment)));
                 }
                 "data" => {
                     insert_dir_setting!(
