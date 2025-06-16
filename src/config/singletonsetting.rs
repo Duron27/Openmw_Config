@@ -7,7 +7,7 @@ macro_rules! impl_singleton_setting {
     }),* $(,)?) => {
             $(
                 pub fn $get_fn(&self) -> Option<&$in_type> {
-                    self.settings.iter().find_map(|setting| {
+                    self.settings.iter().rev().find_map(|setting| {
                         match setting {
                             SettingValue::$variant(value) => Some(value),
                             _ => None,
