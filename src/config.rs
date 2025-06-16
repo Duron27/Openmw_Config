@@ -14,6 +14,9 @@ use directorysetting::DirectorySetting;
 mod gamesetting;
 use gamesetting::GameSettingType;
 
+mod genericsetting;
+use genericsetting::GenericSetting;
+
 mod encodingsetting;
 use encodingsetting::EncodingSetting;
 
@@ -33,6 +36,7 @@ pub enum SettingValue {
     Resources(DirectorySetting),
     Encoding(EncodingSetting),
     SubConfiguration(DirectorySetting),
+    Generic(GenericSetting),
 }
 
 impl Display for SettingValue {
@@ -65,6 +69,7 @@ impl Display for SettingValue {
                 sub_config.meta().comment,
                 sub_config.original()
             ),
+            SettingValue::Generic(generic) => generic.to_string(),
         };
 
         write!(f, "{str}")
@@ -490,8 +495,8 @@ impl OpenMWConfiguration {
                     }
                 },
                 _ => {
-                    // eprintln!("Warning: Unrecognized configuration pair: {key}={value}");
-                    self.generic.insert(key.to_string(), value);
+                    let setting = GenericSetting::new(key, &value, config_dir, &mut queued_comment);
+                    self.settings.push(SettingValue::Generic(setting));
                 }
             }
         }
