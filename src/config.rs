@@ -82,9 +82,7 @@ impl From<DirectorySetting> for SettingValue {
     }
 }
 
-impl SettingValue {
-    // pub fn value(&self) ->
-}
+impl SettingValue {}
 
 macro_rules! insert_dir_setting {
     ($self:ident, $variant:ident, $value:expr, $config_dir:expr, $comment:expr) => {{
@@ -109,36 +107,20 @@ macro_rules! insert_dir_setting {
     }};
 }
 
-macro_rules! impl_path_selector {
-    ($fn_name:ident, $variant:ident) => {
-        pub fn $fn_name(&self) -> impl Iterator<Item = &PathBuf> {
-            self.settings.iter().filter_map(|setting| match setting {
-                SettingValue::$variant(inner) => Some(inner.parsed()),
-                _ => None,
-            })
-        }
-    };
-}
-
 /// Core struct representing the composed OpenMW configuration,
 /// After it has been fully resolved.
 /// The overall configuration itself is immutable after its construction
 #[derive(Debug, Default)]
 pub struct OpenMWConfiguration {
     root_config: PathBuf,
-    sub_configs: Vec<PathBuf>,
     content_files: Vec<String>,
     fallback_archives: Vec<String>,
-    data_local: Option<PathBuf>,
-    userdata: Option<DirectorySetting>,
-    resources: Option<PathBuf>,
     /// Unrecognized or otherwise not-super-important values
     generic: HashMap<String, String>,
     /// Maps k/v pairs to all preceding comments during parsing.
-    comments: HashMap<String, Vec<String>>,
+
     /// Orphaned or trailing comments are preserved at the end of the configuration.
     trailing_comments: HashMap<String, String>,
-    game_settings: HashMap<String, GameSettingType>,
     settings: Vec<SettingValue>,
 }
 
@@ -155,27 +137,22 @@ impl OpenMWConfiguration {
             Ok(_) => {
                 config.root_config = root_config.clone();
 
-                if let Some(dir) = &config.data_local {
-                    let data_local_setting: SettingValue = DirectorySetting::new(
-                        dir.to_string_lossy().to_string(),
-                        root_config.clone(),
-                        &mut String::default(),
-                    )
-                    .into();
-
-                    config.settings.push(data_local_setting);
+                if let Some(dir) = &config.data_local() {
+                    let dir = dir.parsed();
 
                     let dir_meta = metadata(dir);
                     if !dir_meta.is_ok() {
                         if let Err(error) = create_dir_all(dir) {
-                            eprintln!(
+                            util::debug_log(format!(
                                 "WARNING: Attempted to crete a data-local directory at {dir:?}, but failed: {error}"
-                            )
+                            ))
                         };
                     }
                 }
 
-                if let Some(dir) = &config.resources {
+                if let Some(dir) = config.resources() {
+                    let dir = dir.parsed();
+
                     let morrowind_vfs: SettingValue = DirectorySetting::new(
                         dir.join("vfs-mw").to_string_lossy().to_string(),
                         root_config.clone(),
@@ -194,7 +171,7 @@ impl OpenMWConfiguration {
                     config.settings.insert(0, engine_vfs);
                 }
 
-                util::debug_log(format!("{:#?}\n{:#?}", config.settings, config.sub_configs));
+                util::debug_log(format!("{:#?}\n", config.settings));
 
                 config
                     .settings
@@ -234,11 +211,11 @@ impl OpenMWConfiguration {
 
     /// Path to the highest-level configuration *directory*
     pub fn user_config_path(&self) -> PathBuf {
-        util::user_config_path(&self.sub_configs().collect(), &self.root_config_dir())
+        util::user_config_path(
+            &self.sub_configs().map(|setting| setting.parsed()).collect(),
+            &self.root_config_dir(),
+        )
     }
-
-    impl_path_selector!(sub_configs, SubConfiguration);
-    impl_path_selector!(data_directories, DataDirectory);
 
     impl_singleton_setting! {
         UserData => {
@@ -260,6 +237,54 @@ impl OpenMWConfiguration {
             get: encoding,
             set: set_encoding,
             in_type: EncodingSetting
+        }
+    }
+
+    /// Content files are the actual *mods* or plugins which are created by either OpenCS or Bethesda's construction set
+    /// These entries only refer to the names and ordering of content files.
+    /// vfstool-lib should be used to derive paths
+    pub fn content_files(&self) -> &Vec<String> {
+        &self.content_files
+    }
+
+    /// This early iteration of the crate provides no input validation for setter functions.
+    pub fn set_content_files(&mut self, plugins: Vec<String>) {
+        self.content_files = plugins
+    }
+
+    pub fn settings_matching<'a, P>(
+        &'a self,
+        predicate: P,
+    ) -> impl Iterator<Item = &'a SettingValue>
+    where
+        P: Fn(&SettingValue) -> bool + 'a,
+    {
+        self.settings.iter().filter(move |s| predicate(*s))
+    }
+
+    pub fn clear_matching<P>(&mut self, predicate: P)
+    where
+        P: Fn(&SettingValue) -> bool,
+    {
+        self.settings.retain(|s| !predicate(s));
+    }
+
+    /// This early iteration of the crate provides no input validation for setter functions.
+    pub fn set_data_directories(&mut self, dirs: Option<Vec<PathBuf>>) {
+        self.clear_matching(|setting| matches!(setting, SettingValue::DataDirectory(_)));
+
+        if let Some(dirs) = dirs {
+            let config_path = self.user_config_path();
+            let mut empty = String::default();
+
+            dirs.into_iter().for_each(|dir| {
+                self.settings
+                    .push(SettingValue::DataDirectory(DirectorySetting::new(
+                        dir.to_string_lossy(),
+                        config_path.clone(),
+                        &mut empty,
+                    )))
+            })
         }
     }
 
@@ -286,16 +311,44 @@ impl OpenMWConfiguration {
         Ok(())
     }
 
-    /// Content files are the actual *mods* or plugins which are created by either OpenCS or Bethesda's construction set
-    /// These entries only refer to the names and ordering of content files.
-    /// vfstool-lib should be used to derive paths
-    pub fn content_files(&self) -> &Vec<String> {
-        &self.content_files
+    /// This early iteration of the crate provides no input validation for setter functions.
+    pub fn set_game_settings(&mut self, settings: Option<Vec<String>>) -> Result<(), ConfigError> {
+        self.clear_matching(|setting| matches!(setting, SettingValue::GameSetting(_)));
+
+        if let Some(settings) = settings {
+            let config_path = self.user_config_path();
+            let mut empty = String::default();
+
+            settings.into_iter().try_for_each(|setting| {
+                self.settings
+                    .push(SettingValue::GameSetting(GameSettingType::try_from((
+                        setting,
+                        config_path.clone(),
+                        &mut empty,
+                    ))?));
+
+                Ok::<(), ConfigError>(())
+            })?
+        }
+
+        Ok(())
     }
 
-    /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_content_files(&mut self, plugins: Vec<String>) {
-        self.content_files = plugins
+    pub fn sub_configs(&self) -> impl Iterator<Item = &DirectorySetting> {
+        self.settings.iter().filter_map(|setting| match setting {
+            SettingValue::SubConfiguration(subconfig) => Some(subconfig),
+            _ => None,
+        })
+    }
+
+    /// Fallback entries are k/v pairs baked into the value side of k/v pairs in `fallback=` entries of openmw.cfg
+    /// They are used to express settings which are defined in Morrowind.ini for things such as:
+    /// weather, lighting behaviors, UI Colors, and levelup messages
+    pub fn game_settings(&self) -> impl Iterator<Item = &GameSettingType> {
+        self.settings.iter().filter_map(|setting| match setting {
+            SettingValue::GameSetting(gmst) => Some(gmst),
+            _ => None,
+        })
     }
 
     /// Data directories are the bulk of an OpenMW Configuration's contents,
@@ -306,39 +359,11 @@ impl OpenMWConfiguration {
     /// So the real ones may easily be iterated and loaded.
     /// There is not actually validation anywhere in the crate that DirectorySettings refer to a directory which actually exists.
     /// This is according to the openmw.cfg specification and doesn't technically break anything but should be considered when using these paths.
-
-    /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_data_directories(&mut self, dirs: Option<Vec<PathBuf>>) {
-        self.settings.retain(|setting| match setting {
-            SettingValue::DataDirectory(_) => false,
-            _ => true,
-        });
-
-        if let Some(dirs) = dirs {
-            let config_path = self.user_config_path();
-            let mut empty = String::default();
-
-            dirs.iter().for_each(|dir| {
-                self.settings
-                    .push(SettingValue::DataDirectory(DirectorySetting::new(
-                        dir.to_string_lossy(),
-                        config_path.clone(),
-                        &mut empty,
-                    )))
-            })
-        }
-    }
-
-    /// Fallback entries are k/v pairs baked into the value side of k/v pairs in `fallback=` entries of openmw.cfg
-    /// They are used to express settings which are defined in Morrowind.ini for things such as:
-    /// weather, lighting behaviors, UI Colors, and levelup messages
-    pub fn game_settings(&self) -> &HashMap<String, GameSettingType> {
-        &self.game_settings
-    }
-
-    /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_game_settings(&mut self, entries: HashMap<String, GameSettingType>) {
-        self.game_settings = entries
+    pub fn data_directories(&self) -> impl Iterator<Item = &DirectorySetting> {
+        self.settings.iter().filter_map(|setting| match setting {
+            SettingValue::DataDirectory(data_dir) => Some(data_dir),
+            _ => None,
+        })
     }
 
     /// List of filenames of Bethesda Archive files to use in the composed configuration
@@ -433,16 +458,13 @@ impl OpenMWConfiguration {
                 "replace" => match value.to_lowercase().as_str() {
                     "content" => self.content_files = Vec::new(),
                     "data" => self.set_data_directories(None),
-                    "fallback" => self.game_settings = HashMap::new(),
+                    "fallback" => self.set_game_settings(None)?,
                     "fallback-archives" => self.fallback_archives = Vec::new(),
                     "data-local" => self.set_data_local(None),
                     "resources" => self.set_resources(None),
                     "userdata" => self.set_userdata(None),
                     "config" => {
                         self.settings.clear();
-                        // self.content_files = Vec::new();
-                        // self.data_directories = Vec::new();
-                        // self.fallback_archives = Vec::new();
                     }
                     _ => {
                         // eprintln!("Warning: Unrecognized replacement option: {value}")
@@ -500,50 +522,6 @@ impl OpenMWConfiguration {
     fn write_config<P: AsRef<Path> + std::fmt::Debug>(&self, path: &P) -> Result<(), String> {
         use std::io::Write;
         let mut config_string = String::new();
-        let mut comments = self.comments.clone();
-
-        if let Some(ref resources) = self.resources {
-            strings::write_comments(
-                comments.remove(&resources.display().to_string()),
-                &mut config_string,
-            );
-            strings::resources(&mut config_string, &self.resources)?;
-        }
-
-        if let Some(ref userdata) = self.userdata {
-            strings::write_comments(comments.remove(userdata.original()), &mut config_string);
-            strings::userdata(&mut config_string, userdata.original())?;
-        }
-
-        if let Some(ref data_local) = self.data_local {
-            strings::write_comments(
-                comments.remove(&data_local.display().to_string()),
-                &mut config_string,
-            );
-            strings::data_local(&mut config_string, &self.data_local)?;
-        }
-
-        for archive in &self.fallback_archives {
-            strings::write_comments(comments.remove(archive.as_str()), &mut config_string);
-            strings::fallback_archive(&mut config_string, &archive)?;
-        }
-
-        // Content files
-        for content in &self.content_files {
-            strings::write_comments(comments.remove(content.as_str()), &mut config_string);
-            strings::content_file(&mut config_string, &content)?;
-        }
-
-        for (key, value) in &self.game_settings {
-            let fallback_entry_comment_key = format!("{key},{value}");
-
-            strings::write_comments(
-                comments.remove(&fallback_entry_comment_key),
-                &mut config_string,
-            );
-
-            strings::fallback_entry(&mut config_string, &key, &value.to_string())?;
-        }
 
         for (config, comments) in &self.trailing_comments {
             if comments.len() == 0 {
@@ -636,41 +614,6 @@ impl OpenMWConfiguration {
 /// Comments are also preserved.
 impl fmt::Display for OpenMWConfiguration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Resources
-        if let Some(ref resources) = self.resources {
-            writeln!(f, "resources={}", resources.display())?;
-        }
-
-        // Userdata (not typically in openmw.cfg, but included for completeness)
-        if let Some(ref userdata) = self.userdata {
-            writeln!(f, "userdata={}", userdata)?;
-        }
-
-        // Data-local
-        if let Some(ref data_local) = self.data_local {
-            writeln!(f, "data-local={}", data_local.display())?;
-        }
-
-        // Fallback archives
-        for archive in &self.fallback_archives {
-            writeln!(f, "fallback-archive={}", archive)?;
-        }
-
-        // Data directories
-        for dir in self.data_directories() {
-            writeln!(f, "data={}", dir.display())?;
-        }
-
-        // Content files
-        for content in &self.content_files {
-            writeln!(f, "content={}", content)?;
-        }
-
-        // Fallback entries
-        for (_, value) in &self.game_settings {
-            writeln!(f, "{value}")?;
-        }
-
         Ok(())
     }
 }
