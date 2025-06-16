@@ -6,6 +6,7 @@ use std::{
 };
 
 use crate::{ConfigError, GameSetting, bail_config};
+use std::collections::HashSet;
 
 mod directorysetting;
 use directorysetting::DirectorySetting;
@@ -109,7 +110,6 @@ macro_rules! insert_dir_setting {
 
 /// Core struct representing the composed OpenMW configuration,
 /// After it has been fully resolved.
-/// The overall configuration itself is immutable after its construction
 #[derive(Debug, Default)]
 pub struct OpenMWConfiguration {
     root_config: PathBuf,
@@ -118,9 +118,6 @@ pub struct OpenMWConfiguration {
     /// Unrecognized or otherwise not-super-important values
     generic: HashMap<String, String>,
     /// Maps k/v pairs to all preceding comments during parsing.
-
-    /// Orphaned or trailing comments are preserved at the end of the configuration.
-    trailing_comments: HashMap<String, String>,
     settings: Vec<SettingValue>,
 }
 
@@ -132,11 +129,11 @@ impl OpenMWConfiguration {
             None => crate::default_config_path().join("openmw.cfg"),
         };
 
-        match config.load(&root_config) {
+        config.root_config = root_config;
+
+        match config.load(&config.root_config.to_owned()) {
             Err(error) => Err(error),
             Ok(_) => {
-                config.root_config = root_config.clone();
-
                 if let Some(dir) = &config.data_local() {
                     let dir = dir.parsed();
 
@@ -155,14 +152,14 @@ impl OpenMWConfiguration {
 
                     let morrowind_vfs: SettingValue = DirectorySetting::new(
                         dir.join("vfs-mw").to_string_lossy().to_string(),
-                        root_config.clone(),
+                        config.root_config.to_owned(),
                         &mut String::default(),
                     )
                     .into();
 
                     let engine_vfs: SettingValue = DirectorySetting::new(
                         dir.join("vfs").to_string_lossy().to_string(),
-                        root_config,
+                        config.root_config.to_owned(),
                         &mut String::default(),
                     )
                     .into();
@@ -288,6 +285,9 @@ impl OpenMWConfiguration {
         }
     }
 
+    /// Given a string resembling a fallback= entry's value, as it would exist in openmw.cfg,
+    /// Add it to the settings map.
+    /// This process must be non-destructive
     pub fn set_game_setting(
         &mut self,
         base_value: &str,
@@ -299,12 +299,6 @@ impl OpenMWConfiguration {
             config_path.unwrap_or(self.user_config_path()),
             comment,
         ))?;
-
-        self.settings
-            .retain(|existing_setting| match existing_setting {
-                SettingValue::GameSetting(existing_setting) => existing_setting != &new_setting,
-                _ => true,
-            });
 
         self.settings.push(SettingValue::GameSetting(new_setting));
 
@@ -345,10 +339,35 @@ impl OpenMWConfiguration {
     /// They are used to express settings which are defined in Morrowind.ini for things such as:
     /// weather, lighting behaviors, UI Colors, and levelup messages
     pub fn game_settings(&self) -> impl Iterator<Item = &GameSettingType> {
-        self.settings.iter().filter_map(|setting| match setting {
-            SettingValue::GameSetting(gmst) => Some(gmst),
-            _ => None,
-        })
+        let mut unique_settings = Vec::new();
+        let mut seen = HashSet::new();
+
+        for setting in self.settings.iter().rev() {
+            if let SettingValue::GameSetting(gs) = setting {
+                if seen.insert(gs.to_string()) {
+                    unique_settings.push(gs);
+                }
+            }
+        }
+
+        unique_settings.into_iter()
+    }
+
+    /// Retrieves a gamesetting according to its name.
+    /// This would be whatever text comes after the equals sign `=` and before the first comma `,`
+    /// Case-sensitive!
+    pub fn get_game_setting(&self, key: &str) -> Option<&GameSettingType> {
+        for setting in self.settings.iter().rev() {
+            match setting {
+                SettingValue::GameSetting(setting) => {
+                    if setting == &key {
+                        return Some(setting);
+                    }
+                }
+                _ => continue,
+            }
+        }
+        None
     }
 
     /// Data directories are the bulk of an OpenMW Configuration's contents,
@@ -442,18 +461,18 @@ impl OpenMWConfiguration {
                         self,
                         DataDirectory,
                         &value,
-                        config_dir,
+                        &config_dir,
                         &mut queued_comment
                     )
                 }
                 "resources" => {
-                    insert_dir_setting!(self, Resources, &value, config_dir, &mut queued_comment)
+                    insert_dir_setting!(self, Resources, &value, &config_dir, &mut queued_comment)
                 }
                 "userdata" => {
-                    insert_dir_setting!(self, UserData, &value, config_dir, &mut queued_comment)
+                    insert_dir_setting!(self, UserData, &value, &config_dir, &mut queued_comment)
                 }
                 "data-local" => {
-                    insert_dir_setting!(self, DataLocal, &value, config_dir, &mut queued_comment)
+                    insert_dir_setting!(self, DataLocal, &value, &config_dir, &mut queued_comment)
                 }
                 "replace" => match value.to_lowercase().as_str() {
                     "content" => self.content_files = Vec::new(),
@@ -476,15 +495,6 @@ impl OpenMWConfiguration {
                 }
             }
         }
-
-        // Store the trailing comments for a given openmw.cfg
-        // By placing a copy of its absolute path in the comment map
-        // Then, during reserialization, rewrite the trailing comments with their own set of
-        // comments according to what configuration file they belong to
-        self.trailing_comments.insert(
-            config_dir.to_string_lossy().to_ascii_lowercase(),
-            queued_comment,
-        );
 
         // This shit with file/directory is very hard to keep track of and should be refactored post-release, but for now it isn't important
         let cfg_file_path = match config_dir.is_dir() {
@@ -521,17 +531,7 @@ impl OpenMWConfiguration {
 
     fn write_config<P: AsRef<Path> + std::fmt::Debug>(&self, path: &P) -> Result<(), String> {
         use std::io::Write;
-        let mut config_string = String::new();
-
-        for (config, comments) in &self.trailing_comments {
-            if comments.len() == 0 {
-                continue;
-            };
-
-            config_string.push_str(&format!("\n# Trailing comments defined by: {config} #\n"));
-            config_string.push_str(comments);
-            config_string.push('\n');
-        }
+        let config_string = String::new();
 
         let mut file = OpenOptions::new()
             .write(true)

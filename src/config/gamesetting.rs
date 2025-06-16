@@ -79,6 +79,29 @@ pub enum GameSettingType {
     Int(IntGameSetting),
 }
 
+impl GameSettingType {
+    pub fn key(&self) -> &String {
+        match &self {
+            &GameSettingType::Color(setting) => &setting.key,
+            &GameSettingType::String(setting) => &setting.key,
+            &GameSettingType::Float(setting) => &setting.key,
+            &GameSettingType::Int(setting) => &setting.key,
+        }
+    }
+
+    pub fn value(&self) -> String {
+        match &self {
+            &GameSettingType::Color(setting) => {
+                let (r, g, b) = setting.value;
+                format!("{r},{g},{b}")
+            }
+            &GameSettingType::String(setting) => setting.value.clone(),
+            &GameSettingType::Float(setting) => setting.value.to_string(),
+            &GameSettingType::Int(setting) => setting.value.to_string(),
+        }
+    }
+}
+
 impl std::fmt::Display for GameSettingType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
