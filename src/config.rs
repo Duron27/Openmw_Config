@@ -176,6 +176,32 @@ impl OpenMWConfiguration {
         }
     }
 
+    /// Path to the configuration file which is the root of the configuration chain
+    /// Typically, this will be whatever is defined in the `Paths` documentation for the appropriate platform:
+    /// https://openmw.readthedocs.io/en/latest/reference/modding/paths.html#configuration-files-and-log-files
+    pub fn root_config_file(&self) -> &PathBuf {
+        &self.root_config
+    }
+
+    /// Same as root_config_file, but returns the directory it's in.
+    /// Useful for reading other configuration files, or if assuming openmw.cfg
+    /// Is always *called* openmw.cfg (which it should be)
+    pub fn root_config_dir(&self) -> PathBuf {
+        self.root_config.parent().expect("").to_path_buf()
+    }
+
+    /// In order of priority, the list of all openmw.cfg files which were loaded by the configuration chain after the root.
+    /// If the root openmw.cfg is different than the user one, this list will contain the user openmw.cfg as its last element.
+    /// If the root and user openmw.cfg are the *same*, then this list will be empty and the root config should be considered the user config.
+    /// Otherwise, if one wishes to get the contents of the user configuration specifically, construct a new OpenMWConfiguration from the last sub_config.
+    ///
+    /// Openmw.cfg files are added in order of the sequence in which they are defined by one openmw.cfg, and then each of *those* openmw.cfg files
+    /// is then processed in their entirety, sequentially, after the first one has resolved.
+    /// The highest-priority openmw.cfg loaded (the last one!) is considered the user openmw.cfg,
+    /// and will be the one which is modifiable by OpenMW-Launcher and OpenMW proper.
+    ///
+    /// See https://openmw.readthedocs.io/en/latest/reference/modding/paths.html#configuration-sources for examples and further explanation of multiple config sources.
+
     /// Path to the highest-level configuration *directory*
     pub fn user_config_path(&self) -> PathBuf {
         util::user_config_path(&self.sub_configs, &self.root_config)
