@@ -32,10 +32,7 @@ impl std::fmt::Display for StringGameSetting {
         write!(
             f,
             "{}",
-            format!(
-                "{}fallback={},{}",
-                self.meta.comment, self.key, self.value
-            )
+            format!("{}fallback={},{}", self.meta.comment, self.key, self.value)
         )
     }
 }
@@ -52,10 +49,7 @@ impl std::fmt::Display for FloatGameSetting {
         write!(
             f,
             "{}",
-            format!(
-                "{}fallback={},{}",
-                self.meta.comment, self.key, self.value
-            )
+            format!("{}fallback={},{}", self.meta.comment, self.key, self.value)
         )
     }
 }
@@ -72,10 +66,7 @@ impl std::fmt::Display for IntGameSetting {
         write!(
             f,
             "{}",
-            format!(
-                "{}fallback={},{}",
-                self.meta.comment, self.key, self.value
-            )
+            format!("{}fallback={},{}", self.meta.comment, self.key, self.value)
         )
     }
 }
