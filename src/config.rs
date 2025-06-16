@@ -102,7 +102,22 @@ impl From<DirectorySetting> for SettingValue {
     }
 }
 
-impl SettingValue {}
+impl SettingValue {
+    pub fn meta(&self) -> &crate::GameSettingMeta {
+        match self {
+            SettingValue::BethArchive(setting) => setting.meta(),
+            SettingValue::UserData(setting) => setting.meta(),
+            SettingValue::DataLocal(setting) => setting.meta(),
+            SettingValue::DataDirectory(setting) => setting.meta(),
+            SettingValue::ContentFile(setting) => setting.meta(),
+            SettingValue::GameSetting(setting) => setting.meta(),
+            SettingValue::Resources(setting) => setting.meta(),
+            SettingValue::SubConfiguration(setting) => setting.meta(),
+            SettingValue::Encoding(setting) => setting.meta(),
+            SettingValue::Generic(setting) => setting.meta(),
+        }
+    }
+}
 
 macro_rules! insert_dir_setting {
     ($self:ident, $variant:ident, $value:expr, $config_dir:expr, $comment:expr) => {{
@@ -132,7 +147,6 @@ macro_rules! insert_dir_setting {
 #[derive(Debug, Default)]
 pub struct OpenMWConfiguration {
     root_config: PathBuf,
-    /// Maps k/v pairs to all preceding comments during parsing.
     settings: Vec<SettingValue>,
 }
 
@@ -183,7 +197,7 @@ impl OpenMWConfiguration {
                     config.settings.insert(0, engine_vfs);
                 }
 
-                util::debug_log(format!("{:#?}\n", config.settings));
+                util::debug_log(format!("{:#?}", config.settings));
 
                 Ok(config)
             }
@@ -202,6 +216,10 @@ impl OpenMWConfiguration {
     /// Is always *called* openmw.cfg (which it should be)
     pub fn root_config_dir(&self) -> PathBuf {
         self.root_config.parent().expect("").to_path_buf()
+    }
+
+    pub fn is_user_config(&self) -> bool {
+        self.root_config_dir() == self.user_config_path()
     }
 
     /// In order of priority, the list of all openmw.cfg files which were loaded by the configuration chain after the root.
@@ -277,6 +295,15 @@ impl OpenMWConfiguration {
         })
     }
 
+    pub fn has_data_dir(&self, file_name: &str) -> bool {
+        self.settings.iter().any(|setting| match setting {
+            SettingValue::DataDirectory(data_dir) => {
+                data_dir.parsed().to_string_lossy() == file_name
+            }
+            _ => false,
+        })
+    }
+
     pub fn add_content_file(&mut self, content_file: &str) -> Result<(), ConfigError> {
         let duplicate = self.settings.iter().find_map(|setting| match setting {
             SettingValue::ContentFile(plugin) => {
@@ -307,18 +334,42 @@ impl OpenMWConfiguration {
         Ok(())
     }
 
-    pub fn remove_content_file(mut self, file_name: &str) {
+    pub fn remove_content_file(&mut self, file_name: &str) {
         self.clear_matching(|setting| match setting {
             SettingValue::ContentFile(existing_file) => existing_file == file_name,
             _ => false,
         });
     }
 
-    pub fn remove_archive_file(mut self, file_name: &str) {
+    pub fn remove_archive_file(&mut self, file_name: &str) {
         self.clear_matching(|setting| match setting {
             SettingValue::BethArchive(existing_file) => existing_file == file_name,
             _ => false,
         });
+    }
+
+    /// Removed any path matching either the relativized original version in openmw.cfg or
+    /// the fully resolved absolute version the config itself relies on
+    pub fn remove_data_directory(&mut self, data_dir: &PathBuf) {
+        self.clear_matching(|setting| match setting {
+            SettingValue::DataDirectory(existing_data_dir) => {
+                existing_data_dir.parsed() == data_dir
+                    || existing_data_dir.original() == &data_dir.to_string_lossy().to_string()
+            }
+            _ => false,
+        });
+    }
+
+    /// Does not validate duplicate data directories
+    /// Jest don't feel like it atm
+    /// Let's add comments later after we're not super burned out on this whole config thing
+    pub fn add_data_directory(&mut self, dir: PathBuf) {
+        self.settings
+            .push(SettingValue::DataDirectory(DirectorySetting::new(
+                dir.to_string_lossy(),
+                self.user_config_path().join("openmw.cfg"),
+                &mut String::default(),
+            )))
     }
 
     pub fn add_archive_file(&mut self, archive_file: &str) -> Result<(), ConfigError> {
@@ -524,7 +575,13 @@ impl OpenMWConfiguration {
     /// So the real ones may easily be iterated and loaded.
     /// There is not actually validation anywhere in the crate that DirectorySettings refer to a directory which actually exists.
     /// This is according to the openmw.cfg specification and doesn't technically break anything but should be considered when using these paths.
-    pub fn data_directories(&self) -> impl Iterator<Item = &DirectorySetting> {
+    pub fn data_directories(&self) -> Vec<&PathBuf> {
+        self.data_directories_iter()
+            .map(|setting| setting.parsed())
+            .collect()
+    }
+
+    pub fn data_directories_iter(&self) -> impl Iterator<Item = &DirectorySetting> {
         self.settings.iter().filter_map(|setting| match setting {
             SettingValue::DataDirectory(data_dir) => Some(data_dir),
             _ => None,
@@ -695,9 +752,12 @@ impl OpenMWConfiguration {
         Ok(())
     }
 
-    fn write_config<P: AsRef<Path> + std::fmt::Debug>(&self, path: &P) -> Result<(), String> {
+    fn write_config<P: AsRef<Path> + std::fmt::Debug>(
+        &self,
+        config_string: String,
+        path: &P,
+    ) -> Result<(), String> {
         use std::io::Write;
-        let config_string = String::new();
 
         let mut file = OpenOptions::new()
             .write(true)
@@ -712,17 +772,12 @@ impl OpenMWConfiguration {
         Ok(())
     }
 
-    /// Saves the current composite configuration to whatever the designated user config path is.
-    /// Note that this function does not validate that your saved configuration makes *sense*, or is what you intended for it to be.
-    /// Calling this method on an openmw.cfg which, itself calls other openmw.cfg files, can have unintended effects, so it should *always*
-    /// be ran against the user openmw.cfg.
-    ///
-    /// This is a rather unavoidable side effect of the nature of openmw.cfg's flattened data structure.
-    /// Should you wish to run the `save` method, it is your responsibility to ensure you use it on the right configuration.
-    ///
-    /// It is recommended that, if used, this function should be called upon the most narrowly-scoped
-    /// openmw.cfg which can reasonably be used.
-    pub fn save(&self) -> Result<(), String> {
+    /// Saves the currently-defined user openmw.cfg configuration
+    /// It should be noted that while modifications may be performed at runtime,
+    /// Because of how *extensive* those modifications to a given configuration may *be*, it's more or less impossible to
+    /// guarantee that saving any lower priority openmw.cfg will not *completely* destroy it.
+    /// You've been warned!
+    pub fn save_user(&self) -> Result<(), String> {
         let target_dir = self.user_config_path();
 
         // Check if target_dir is a writable directory
@@ -737,7 +792,13 @@ impl OpenMWConfiguration {
 
         // Write the config to openmw.cfg in the target directory
         let cfg_path = target_dir.join("openmw.cfg");
-        self.write_config(&cfg_path)?;
+
+        let mut user_settings_string = String::new();
+
+        self.settings_matching(|setting| setting.meta().source_config == cfg_path)
+            .for_each(|user_setting| user_settings_string.push_str(&user_setting.to_string()));
+
+        self.write_config(user_settings_string, &cfg_path)?;
 
         Ok(())
     }
@@ -745,23 +806,39 @@ impl OpenMWConfiguration {
     /// Save the openmw.cfg to an arbitrary path, instead of the (safe) user configuration.
     /// This doesn't prevent bad usages of the configuration such as overriding an existing one with the original root configuration,
     /// So you should exercise caution when writing an openmw.cfg and be very sure you know it is going where you think it is.
-    pub fn save_path(&self, path: PathBuf) -> Result<(), String> {
-        let target_dir = path.parent().expect(&format!(
-            "Could not get parent directory of the path: {path:?} to write openmw.cfg!"
-        ));
-
+    pub fn save_subconfig(&self, target_dir: PathBuf) -> Result<(), String> {
         // Check if target_dir is a writable directory
         if !target_dir.is_dir() {
             return Err(format!("Target path {:?} is not a directory.", target_dir));
-        }
-
-        // Try to open a file for writing to check writability
-        if !util::can_write_to_dir(&target_dir) {
+        } else if !util::can_write_to_dir(&target_dir) {
             return Err(format!("Directory {:?} is not writable!", target_dir));
         };
 
-        // Write the config to openmw.cfg in the target directory
-        self.write_config(&path)?;
+        let subconfig_is_loaded = self.settings.iter().any(|setting| match setting {
+            SettingValue::SubConfiguration(subconfig) => {
+                subconfig.parsed() == &target_dir
+                    || subconfig.original() == &target_dir.to_string_lossy().to_string()
+            }
+            _ => false,
+        });
+
+        if !subconfig_is_loaded {
+            return Err(format!(
+                "Refusing to save a sub-configuration which is not actually loaded as a child of the current one: {}",
+                target_dir.display()
+            ));
+        }
+
+        let cfg_path = target_dir.join("openmw.cfg");
+
+        let mut subconfig_settings_string = String::new();
+
+        self.settings_matching(|setting| setting.meta().source_config == cfg_path)
+            .for_each(|subconfig_setting| {
+                subconfig_settings_string.push_str(&subconfig_setting.to_string())
+            });
+
+        self.write_config(subconfig_settings_string, &cfg_path)?;
 
         Ok(())
     }
@@ -780,6 +857,16 @@ impl OpenMWConfiguration {
 /// Comments are also preserved.
 impl fmt::Display for OpenMWConfiguration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.settings
+            .iter()
+            .try_for_each(|setting| write!(f, "{}", setting))?;
+
+        writeln!(
+            f,
+            "# OpenMW-Config Serializer Version: {}",
+            std::env::var("CARGO_PKG_VERSON").expect("")
+        )?;
+
         Ok(())
     }
 }
