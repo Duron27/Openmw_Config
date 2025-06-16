@@ -77,15 +77,19 @@ pub fn parse_data_directory<P: AsRef<std::path::Path>>(
 
     // Token replacement
     if data_dir.starts_with("?userdata?") {
-        let mut path = crate::default_userdata_path();
+        let suffix = data_dir["?userdata?".len()..].trim_start_matches(&['/', '\\'][..]);
 
-        path.push(&data_dir["?userdata?".len()..]);
-        data_dir = path.to_string_lossy().to_string();
+        data_dir = crate::default_userdata_path()
+            .join(suffix)
+            .to_string_lossy()
+            .to_string();
     } else if data_dir.starts_with("?userconfig?") {
-        let mut path = crate::default_config_path();
+        let suffix = data_dir["?userdata?".len()..].trim_start_matches(&['/', '\\'][..]);
 
-        path.push(&data_dir["?userconfig?".len()..]);
-        data_dir = path.to_string_lossy().to_string();
+        data_dir = crate::default_config_path()
+            .join(suffix)
+            .to_string_lossy()
+            .to_string();
     }
 
     let data_dir = data_dir.replace(['/', '\\'], &std::path::MAIN_SEPARATOR.to_string());
