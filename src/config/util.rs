@@ -32,8 +32,10 @@ pub fn can_write_to_dir<P: AsRef<std::path::Path>>(dir: &P) -> bool {
 
 /// Transposes an input directory or file path to an openmw.cfg path
 /// Maybe could do with some additional validation
-pub fn input_config_path(config_path: &std::path::Path) -> Result<std::path::PathBuf, crate::ConfigError> {
-    if config_path.is_file() {
+pub fn input_config_path(
+    config_path: &std::path::Path,
+) -> Result<std::path::PathBuf, crate::ConfigError> {
+    if config_path.is_file() || config_path.is_symlink() {
         Ok(config_path.to_path_buf())
     } else if config_path.is_dir() {
         let maybe_config = config_path.join("openmw.cfg");
