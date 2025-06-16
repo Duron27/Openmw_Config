@@ -25,6 +25,13 @@ macro_rules! config_err {
         }
     };
 
+    (duplicate_archive_file, $archive_file:expr, $config_path:expr) => {
+        $crate::ConfigError::DuplicateArchiveFile {
+            file: $archive_file,
+            config_path: $config_path.to_path_buf(),
+        }
+    };
+
     (bad_encoding, $encoding:expr, $config_path:expr) => {
         $crate::ConfigError::BadEncoding {
             value: $encoding,
@@ -62,6 +69,7 @@ macro_rules! bail_config {
 #[derive(Debug)]
 pub enum ConfigError {
     DuplicateContentFile { file: String, config_path: PathBuf },
+    DuplicateArchiveFile { file: String, config_path: PathBuf },
     InvalidGameSetting { value: String, config_path: PathBuf },
     BadEncoding { value: String, config_path: PathBuf },
     InvalidLine { value: String, config_path: PathBuf },
@@ -102,6 +110,14 @@ impl fmt::Display for ConfigError {
                 "{}",
                 format!(
                     "{file} has appeared in the content files list twice. Its second occurence was in: {}",
+                    config_path.display()
+                ),
+            ),
+            ConfigError::DuplicateArchiveFile { file, config_path } => write!(
+                f,
+                "{}",
+                format!(
+                    "{file} has appeared in the BSA/Archive list twice. Its second occurence was in: {}",
                     config_path.display()
                 ),
             ),
