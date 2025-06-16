@@ -335,7 +335,7 @@ impl OpenMWConfiguration {
         self.settings
             .push(SettingValue::ContentFile(FileSetting::new(
                 content_file,
-                &self.user_config_path(),
+                &self.user_config_path().join("openmw.cfg"),
                 &mut String::default(),
             )));
 
@@ -403,7 +403,7 @@ impl OpenMWConfiguration {
         self.settings
             .push(SettingValue::BethArchive(FileSetting::new(
                 archive_file,
-                &self.user_config_path(),
+                &self.user_config_path().join("openmw.cfg"),
                 &mut String::default(),
             )));
 
