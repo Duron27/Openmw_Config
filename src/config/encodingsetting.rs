@@ -41,10 +41,10 @@ impl GameSetting for EncodingSetting {
 
 impl fmt::Display for EncodingSetting {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        writeln!(
+        write!(
             f,
             "{}",
-            format!("{}\nencoding={}", self.meta.comment, self.encoding)
+            format!("{}encoding={}", self.meta.comment, self.encoding)
         )
     }
 }
@@ -141,6 +141,9 @@ mod tests {
         .unwrap();
 
         let rendered = setting.to_string();
-        assert_eq!(rendered.trim(), "encoding=win1250");
+        assert_eq!(
+            rendered.trim(),
+            format!("{}encoding=win1250", dummy_comment())
+        );
     }
 }
