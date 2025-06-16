@@ -19,6 +19,7 @@ use gamesetting::GameSettingType;
 mod encodingsetting;
 use encodingsetting::EncodingSetting;
 
+#[macro_use]
 pub mod error;
 #[macro_use]
 mod singletonsetting;
@@ -33,6 +34,7 @@ pub enum SettingValue {
     DataLocal(DirectorySetting),
     Resources(DirectorySetting),
     Encoding(EncodingSetting),
+    SubConfiguration(DirectorySetting),
 }
 
 impl Display for SettingValue {
@@ -60,6 +62,11 @@ impl Display for SettingValue {
                 data_directory.meta().comment,
                 data_directory.original()
             ),
+            SettingValue::SubConfiguration(sub_config) => format!(
+                "{}config={}",
+                sub_config.meta().comment,
+                sub_config.original()
+            ),
         };
 
         write!(f, "{str}")
@@ -78,16 +85,42 @@ impl From<DirectorySetting> for SettingValue {
     }
 }
 
+impl SettingValue {
+    // pub fn value(&self) ->
+}
+
 macro_rules! insert_dir_setting {
     ($self:ident, $variant:ident, $value:expr, $config_dir:expr, $comment:expr) => {{
+        let actual_dir = match $config_dir.is_dir() {
+            true => $config_dir,
+            false => {
+                if $config_dir.is_file() {
+                    $config_dir.parent().expect("")
+                } else {
+                    bail_config!(not_file_or_directory, Path::new($value));
+                }
+            }
+        };
+
         $self
             .settings
             .push(SettingValue::$variant(DirectorySetting::new(
                 $value,
-                $config_dir.to_path_buf(),
+                actual_dir.to_path_buf(),
                 $comment,
             )));
     }};
+}
+
+macro_rules! impl_path_selector {
+    ($fn_name:ident, $variant:ident) => {
+        pub fn $fn_name(&self) -> impl Iterator<Item = &PathBuf> {
+            self.settings.iter().filter_map(|setting| match setting {
+                SettingValue::$variant(inner) => Some(inner.parsed()),
+                _ => None,
+            })
+        }
+    };
 }
 
 /// Core struct representing the composed OpenMW configuration,
@@ -204,8 +237,11 @@ impl OpenMWConfiguration {
 
     /// Path to the highest-level configuration *directory*
     pub fn user_config_path(&self) -> PathBuf {
-        util::user_config_path(&self.sub_configs, &self.root_config)
+        util::user_config_path(&self.sub_configs().collect(), &self.root_config_dir())
     }
+
+    impl_path_selector!(sub_configs, SubConfiguration);
+    impl_path_selector!(data_directories, DataDirectory);
 
     impl_singleton_setting! {
         UserData => {
@@ -250,15 +286,6 @@ impl OpenMWConfiguration {
     /// So the real ones may easily be iterated and loaded.
     /// There is not actually validation anywhere in the crate that DirectorySettings refer to a directory which actually exists.
     /// This is according to the openmw.cfg specification and doesn't technically break anything but should be considered when using these paths.
-    pub fn data_directories(&self) -> Vec<&PathBuf> {
-        self.settings
-            .iter()
-            .filter_map(|setting| match setting {
-                SettingValue::DataDirectory(data_dir) => Some(data_dir.parsed()),
-                _ => None,
-            })
-            .collect()
-    }
 
     /// This early iteration of the crate provides no input validation for setter functions.
     pub fn set_data_directories(&mut self, dirs: Option<Vec<PathBuf>>) {
@@ -304,39 +331,22 @@ impl OpenMWConfiguration {
         self.fallback_archives = archives
     }
 
-    /// Path to the openmw.cfg file which is the root of the configuration chain
-    pub fn root_config(&self) -> &PathBuf {
-        &self.root_config
-    }
-
-    /// In order of priority, the list of all openmw.cfg files which were loaded by the configuration chain after the root.
-    /// If the root openmw.cfg is different than the user one, this list will contain the user openmw.cfg as its last element.
-    /// If the root and user openmw.cfg are the *same*, then this list will be empty and the root config should be considered the user config.
-    /// Otherwise, if one wishes to get the contents of the user configuration specifically, construct a new OpenMWConfiguration from the last sub_config.
-    ///
-    /// Openmw.cfg files are added in order of the sequence in which they are defined by one openmw.cfg, and then each of *those* openmw.cfg files
-    /// is then processed in their entirety, sequentially, after the first one has resolved.
-    /// The highest-priority openmw.cfg loaded (the last one!) is considered the user openmw.cfg,
-    /// and will be the one which is modifiable by OpenMW-Launcher and OpenMW proper.
-    ///
-    /// See https://openmw.readthedocs.io/en/latest/reference/modding/paths.html#configuration-sources for examples and further explanation of multiple config sources.
-    pub fn sub_configs(&self) -> &Vec<PathBuf> {
-        &self.sub_configs
-    }
-
     fn load(&mut self, config_dir: &Path) -> Result<(), ConfigError> {
-        let config_path = util::input_config_path(config_dir)?;
+        util::debug_log(format!("BEGIN CONFIG PARSING: {config_dir:?}"));
 
-        util::debug_log(format!("BEGIN CONFIG PARSING: {config_path:?}"));
-
-        if !config_path.exists() {
-            bail_config!(cannot_find, config_path);
+        if !config_dir.exists() {
+            bail_config!(cannot_find, config_dir);
         }
 
-        let mut sub_configs = Vec::new();
-        let lines = read_to_string(&config_path)?;
+        let cfg_file_path = match config_dir.is_dir() {
+            true => config_dir.join("openmw.cfg"),
+            false => config_dir.to_path_buf(),
+        };
+
+        let lines = read_to_string(&cfg_file_path)?;
 
         let mut queued_comment = String::new();
+        let mut sub_configs: Vec<(String, String)> = Vec::new();
 
         for line in lines.lines() {
             let trimmed = line.trim();
@@ -351,7 +361,7 @@ impl OpenMWConfiguration {
 
             let tokens: Vec<&str> = trimmed.splitn(2, '=').collect();
             if tokens.len() < 2 {
-                bail_config!(invalid_line, trimmed.into(), config_path);
+                bail_config!(invalid_line, trimmed.into(), config_dir.to_path_buf());
             }
 
             let key = tokens[0].trim();
@@ -377,30 +387,32 @@ impl OpenMWConfiguration {
                         .into(),
                     );
                 }
-                "config" => {
-                    let config_path = strings::parse_data_directory(
-                        &config_path.parent().expect("").to_path_buf(),
-                        value.to_owned(),
-                    );
-
-                    sub_configs.push(config_path);
-                }
                 "encoding" => self.set_encoding(Some(EncodingSetting::try_from((
                     value,
                     config_dir,
                     &mut queued_comment,
                 ))?)),
+                "config" => {
+                    sub_configs.push((value, queued_comment.clone()));
+                    queued_comment.clear();
+                }
                 "data" => {
-                    insert_dir_setting!(self, DataDirectory, value, config_dir, &mut queued_comment)
+                    insert_dir_setting!(
+                        self,
+                        DataDirectory,
+                        &value,
+                        config_dir,
+                        &mut queued_comment
+                    )
                 }
                 "resources" => {
-                    insert_dir_setting!(self, Resources, value, config_dir, &mut queued_comment)
+                    insert_dir_setting!(self, Resources, &value, config_dir, &mut queued_comment)
                 }
                 "userdata" => {
-                    insert_dir_setting!(self, UserData, value, config_dir, &mut queued_comment)
+                    insert_dir_setting!(self, UserData, &value, config_dir, &mut queued_comment)
                 }
                 "data-local" => {
-                    insert_dir_setting!(self, DataLocal, value, config_dir, &mut queued_comment)
+                    insert_dir_setting!(self, DataLocal, &value, config_dir, &mut queued_comment)
                 }
                 "replace" => match value.to_lowercase().as_str() {
                     "content" => self.content_files = Vec::new(),
@@ -432,19 +444,39 @@ impl OpenMWConfiguration {
         // Then, during reserialization, rewrite the trailing comments with their own set of
         // comments according to what configuration file they belong to
         self.trailing_comments.insert(
-            config_path.to_string_lossy().to_ascii_lowercase(),
+            config_dir.to_string_lossy().to_ascii_lowercase(),
             queued_comment,
         );
 
-        // A configuration entry doesn't necessarily *need* to have an openmw.cfg as the system is more complex than that
-        // However, it should still be tracked for other purposes regardless
-        for config in sub_configs {
-            self.sub_configs.push(config.clone());
-
-            if config.join("openmw.cfg").is_file() {
-                self.load(&config)?;
-            }
+        // This shit with file/directory is very hard to keep track of and should be refactored post-release, but for now it isn't important
+        let cfg_file_path = match config_dir.is_dir() {
+            true => config_dir,
+            false => config_dir
+                .parent()
+                .ok_or_else(|| config_err!(cannot_find, config_dir))?,
         }
+        .to_path_buf();
+
+        sub_configs.into_iter().try_for_each(
+            |(subconfig_path, mut subconfig_comment): (String, String)| {
+                let mut comment = std::mem::take(&mut subconfig_comment);
+
+                let setting: DirectorySetting = DirectorySetting::new(subconfig_path.clone(), cfg_file_path.clone(), &mut comment);
+                let subconfig_path = setting.parsed().join("openmw.cfg");
+
+                if std::fs::metadata(&subconfig_path).is_ok() {
+                    self.settings.push(SettingValue::SubConfiguration(setting));
+                    self.load(Path::new(&subconfig_path))
+                } else {
+                    util::debug_log(format!(
+                        "Skipping parsing of {} As this directory does not actually contain an openmw.cfg!",
+                        cfg_file_path.display(),
+                    ));
+
+                    Ok(())
+                }
+            },
+        )?;
 
         Ok(())
     }
