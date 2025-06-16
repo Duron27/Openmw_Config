@@ -5,10 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
-    ConfigError, GameSetting, bail_config,
-    config::{self, util::user_config_path},
-};
+use crate::{ConfigError, GameSetting, bail_config};
 
 mod directorysetting;
 use directorysetting::DirectorySetting;
