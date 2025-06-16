@@ -50,6 +50,23 @@ pub fn write_comments(comments: Option<Vec<String>>, config_string: &mut String)
     }
 }
 
+fn strip_special_components<P: AsRef<std::path::Path>>(input: P) -> PathBuf {
+    let mut result = PathBuf::new();
+    for component in input.as_ref().components() {
+        use std::path::Component::*;
+        match component {
+            CurDir => {} // skip '.'
+            ParentDir => {
+                result.pop(); // remove last segment
+            }
+            Normal(part) => result.push(part),
+            RootDir => result.push(component),
+            Prefix(prefix) => result.push(prefix.as_os_str()), // for Windows
+        }
+    }
+    result
+}
+
 /// Parses a data directory string according to OpenMW rules.
 /// https://openmw.readthedocs.io/en/latest/reference/modding/paths.html#openmw-cfg-syntax
 pub fn parse_data_directory<P: AsRef<std::path::Path>>(
@@ -99,5 +116,5 @@ pub fn parse_data_directory<P: AsRef<std::path::Path>>(
         path = config_dir.as_ref().join(path);
     }
 
-    path
+    strip_special_components(path)
 }

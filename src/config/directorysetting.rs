@@ -123,4 +123,34 @@ mod tests {
         let expected = config_path.join("subdir").join("nested");
         assert_eq!(setting.parsed, expected);
     }
+
+    fn mock_path(path: &str) -> PathBuf {
+        PathBuf::from(path)
+    }
+
+    #[test]
+    fn test_dot_component_is_removed() {
+        let config = mock_path("/etc/openmw");
+        let mut comment = String::from("comment");
+        let setting = DirectorySetting::new("./data", config.clone(), &mut comment);
+        assert_eq!(setting.parsed(), &config.join("data"));
+    }
+
+    #[test]
+    fn test_double_dot_component_removes_parent() {
+        let config = mock_path("/home/user/.config/openmw");
+        let mut comment = String::from("comment");
+        let setting = DirectorySetting::new("../common", config.clone(), &mut comment);
+        let expected = config.parent().unwrap().join("common");
+        assert_eq!(setting.parsed(), &expected);
+    }
+
+    #[test]
+    fn test_nested_dots_normalize_correctly() {
+        let config = mock_path("/opt/game/config");
+        let mut comment = String::new();
+        let setting = DirectorySetting::new("foo/./bar/../baz", config.clone(), &mut comment);
+        let expected = config.join("foo/baz");
+        assert_eq!(setting.parsed(), &expected);
+    }
 }
