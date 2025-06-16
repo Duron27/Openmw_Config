@@ -19,6 +19,12 @@ impl PartialEq<&str> for FileSetting {
     }
 }
 
+impl PartialEq<str> for FileSetting {
+    fn eq(&self, other: &str) -> bool {
+        self.value == other
+    }
+}
+
 impl PartialEq<&String> for FileSetting {
     fn eq(&self, other: &&String) -> bool {
         &self.value == *other

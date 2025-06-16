@@ -263,6 +263,94 @@ impl OpenMWConfiguration {
         })
     }
 
+    pub fn has_content_file(&self, file_name: &str) -> bool {
+        self.settings.iter().any(|setting| match setting {
+            SettingValue::ContentFile(plugin) => plugin == file_name,
+            _ => false,
+        })
+    }
+
+    pub fn has_archive_file(&self, file_name: &str) -> bool {
+        self.settings.iter().any(|setting| match setting {
+            SettingValue::BethArchive(archive) => archive == file_name,
+            _ => false,
+        })
+    }
+
+    pub fn add_content_file(&mut self, content_file: &str) -> Result<(), ConfigError> {
+        let duplicate = self.settings.iter().find_map(|setting| match setting {
+            SettingValue::ContentFile(plugin) => {
+                if plugin == content_file {
+                    Some(plugin)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        });
+
+        if let Some(duplicate) = duplicate {
+            bail_config!(
+                duplicate_content_file,
+                duplicate.value().to_owned(),
+                duplicate.meta().source_config
+            )
+        };
+
+        self.settings
+            .push(SettingValue::ContentFile(FileSetting::new(
+                content_file,
+                &self.user_config_path(),
+                &mut String::default(),
+            )));
+
+        Ok(())
+    }
+
+    pub fn remove_content_file(mut self, file_name: &str) {
+        self.clear_matching(|setting| match setting {
+            SettingValue::ContentFile(existing_file) => existing_file == file_name,
+            _ => false,
+        });
+    }
+
+    pub fn remove_archive_file(mut self, file_name: &str) {
+        self.clear_matching(|setting| match setting {
+            SettingValue::BethArchive(existing_file) => existing_file == file_name,
+            _ => false,
+        });
+    }
+
+    pub fn add_archive_file(&mut self, archive_file: &str) -> Result<(), ConfigError> {
+        let duplicate = self.settings.iter().find_map(|setting| match setting {
+            SettingValue::BethArchive(archive) => {
+                if archive == archive_file {
+                    Some(archive)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        });
+
+        if let Some(duplicate) = duplicate {
+            bail_config!(
+                duplicate_archive_file,
+                duplicate.value().to_owned(),
+                duplicate.meta().source_config
+            )
+        };
+
+        self.settings
+            .push(SettingValue::BethArchive(FileSetting::new(
+                archive_file,
+                &self.user_config_path(),
+                &mut String::default(),
+            )));
+
+        Ok(())
+    }
+
     pub fn fallback_archives(&self) -> Vec<&String> {
         self.fallback_archives_iter()
             .map(|setting| setting.value())
