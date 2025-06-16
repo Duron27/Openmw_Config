@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     fmt::{self, Display},
     fs::{OpenOptions, create_dir_all, metadata, read_to_string},
     path::{Path, PathBuf},
@@ -10,6 +9,9 @@ use std::collections::HashSet;
 
 mod directorysetting;
 use directorysetting::DirectorySetting;
+
+mod filesetting;
+use filesetting::FileSetting;
 
 mod gamesetting;
 use gamesetting::GameSettingType;
@@ -37,6 +39,8 @@ pub enum SettingValue {
     Encoding(EncodingSetting),
     SubConfiguration(DirectorySetting),
     Generic(GenericSetting),
+    ContentFile(FileSetting),
+    BethArchive(FileSetting),
 }
 
 impl Display for SettingValue {
@@ -70,6 +74,16 @@ impl Display for SettingValue {
                 sub_config.original()
             ),
             SettingValue::Generic(generic) => generic.to_string(),
+            SettingValue::ContentFile(plugin) => {
+                format!("{}content={}", plugin.meta().comment, plugin.value(),)
+            }
+            SettingValue::BethArchive(archive) => {
+                format!(
+                    "{}fallback-archive={}",
+                    archive.meta().comment,
+                    archive.value(),
+                )
+            }
         };
 
         write!(f, "{str}")
@@ -118,10 +132,6 @@ macro_rules! insert_dir_setting {
 #[derive(Debug, Default)]
 pub struct OpenMWConfiguration {
     root_config: PathBuf,
-    content_files: Vec<String>,
-    fallback_archives: Vec<String>,
-    /// Unrecognized or otherwise not-super-important values
-    generic: HashMap<String, String>,
     /// Maps k/v pairs to all preceding comments during parsing.
     settings: Vec<SettingValue>,
 }
@@ -174,11 +184,6 @@ impl OpenMWConfiguration {
                 }
 
                 util::debug_log(format!("{:#?}\n", config.settings));
-
-                config
-                    .settings
-                    .iter()
-                    .for_each(|setting_value| println!("{setting_value}"));
 
                 Ok(config)
             }
@@ -245,13 +250,61 @@ impl OpenMWConfiguration {
     /// Content files are the actual *mods* or plugins which are created by either OpenCS or Bethesda's construction set
     /// These entries only refer to the names and ordering of content files.
     /// vfstool-lib should be used to derive paths
-    pub fn content_files(&self) -> &Vec<String> {
-        &self.content_files
+    pub fn content_files(&self) -> Vec<&String> {
+        self.content_files_iter()
+            .map(|setting| setting.value())
+            .collect()
+    }
+
+    pub fn content_files_iter(&self) -> impl Iterator<Item = &FileSetting> {
+        self.settings.iter().filter_map(|setting| match setting {
+            SettingValue::ContentFile(plugin) => Some(plugin),
+            _ => None,
+        })
+    }
+
+    pub fn fallback_archives(&self) -> Vec<&String> {
+        self.fallback_archives_iter()
+            .map(|setting| setting.value())
+            .collect()
+    }
+
+    pub fn fallback_archives_iter(&self) -> impl Iterator<Item = &FileSetting> {
+        self.settings.iter().filter_map(|setting| match setting {
+            SettingValue::BethArchive(archive) => Some(archive),
+            _ => None,
+        })
     }
 
     /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_content_files(&mut self, plugins: Vec<String>) {
-        self.content_files = plugins
+    pub fn set_content_files(&mut self, plugins: Option<Vec<String>>) {
+        self.clear_matching(|setting| matches!(setting, SettingValue::ContentFile(_)));
+
+        if let Some(plugins) = plugins {
+            plugins.into_iter().for_each(|plugin| {
+                self.settings
+                    .push(SettingValue::ContentFile(FileSetting::new(
+                        &plugin,
+                        &self.user_config_path(),
+                        &mut String::default(),
+                    )))
+            })
+        }
+    }
+
+    pub fn set_fallback_archives(&mut self, archives: Option<Vec<String>>) {
+        self.clear_matching(|setting| matches!(setting, SettingValue::BethArchive(_)));
+
+        if let Some(archives) = archives {
+            archives.into_iter().for_each(|archive| {
+                self.settings
+                    .push(SettingValue::BethArchive(FileSetting::new(
+                        &archive,
+                        &self.user_config_path(),
+                        &mut String::default(),
+                    )))
+            })
+        }
     }
 
     pub fn settings_matching<'a, P>(
@@ -390,16 +443,6 @@ impl OpenMWConfiguration {
         })
     }
 
-    /// List of filenames of Bethesda Archive files to use in the composed configuration
-    pub fn fallback_archives(&self) -> &Vec<String> {
-        &self.fallback_archives
-    }
-
-    /// This early iteration of the crate provides no input validation for setter functions.
-    pub fn set_fallback_archives(&mut self, archives: Vec<String>) {
-        self.fallback_archives = archives
-    }
-
     fn load(&mut self, config_dir: &Path) -> Result<(), ConfigError> {
         util::debug_log(format!("BEGIN CONFIG PARSING: {config_dir:?}"));
 
@@ -438,13 +481,42 @@ impl OpenMWConfiguration {
 
             match key {
                 "content" => {
-                    if self.content_files.contains(&value) {
-                        bail_config!(duplicate_content_file, value, config_dir);
-                    }
-                    self.content_files.push(value);
+                    self.settings.iter().try_for_each(|setting| match setting {
+                        SettingValue::ContentFile(plugin) => {
+                            if *plugin == &value {
+                                bail_config!(duplicate_content_file, value.to_owned(), config_dir)
+                            } else {
+                                Ok(())
+                            }
+                        }
+                        _ => Ok(()),
+                    })?;
+
+                    self.settings
+                        .push(SettingValue::ContentFile(FileSetting::new(
+                            &value,
+                            &config_dir,
+                            &mut queued_comment,
+                        )));
                 }
                 "fallback-archive" => {
-                    self.fallback_archives.push(value);
+                    self.settings.iter().try_for_each(|setting| match setting {
+                        SettingValue::BethArchive(archive) => {
+                            if *archive == &value {
+                                bail_config!(duplicate_archive_file, value.to_owned(), config_dir)
+                            } else {
+                                Ok(())
+                            }
+                        }
+                        _ => Ok(()),
+                    })?;
+
+                    self.settings
+                        .push(SettingValue::BethArchive(FileSetting::new(
+                            &value,
+                            &config_dir,
+                            &mut queued_comment,
+                        )));
                 }
                 "fallback" => {
                     self.set_game_setting(
@@ -480,10 +552,10 @@ impl OpenMWConfiguration {
                     insert_dir_setting!(self, DataLocal, &value, &config_dir, &mut queued_comment)
                 }
                 "replace" => match value.to_lowercase().as_str() {
-                    "content" => self.content_files = Vec::new(),
+                    "content" => self.set_content_files(None),
                     "data" => self.set_data_directories(None),
                     "fallback" => self.set_game_settings(None)?,
-                    "fallback-archives" => self.fallback_archives = Vec::new(),
+                    "fallback-archives" => self.set_fallback_archives(None),
                     "data-local" => self.set_data_local(None),
                     "resources" => self.set_resources(None),
                     "userdata" => self.set_userdata(None),
