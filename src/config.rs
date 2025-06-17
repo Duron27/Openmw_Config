@@ -126,7 +126,7 @@ impl SettingValue {
 
 macro_rules! insert_dir_setting {
     ($self:ident, $variant:ident, $value:expr, $config_dir:expr, $comment:expr) => {{
-        let actual_dir = util::input_config_path($config_dir)?;
+        let mut actual_dir = util::input_config_path($config_dir)?;
 
         if actual_dir
             .file_name()
@@ -137,8 +137,12 @@ macro_rules! insert_dir_setting {
                 .parent()
                 .map(|p| p.to_path_buf())
                 .ok_or_else(|| {
-                    config_err!(parse, "Invalid openmw.cfg path: no parent directory")
-                })?;
+                    std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "Invalid openmw.cfg path: no parent directory",
+                    )
+                })
+                .map_err(|io_err| ConfigError::Io(io_err))?;
         }
 
         $self

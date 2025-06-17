@@ -74,11 +74,6 @@ macro_rules! config_err {
         }
     };
 
-    // Parse error: single string
-    (parse, $msg:expr) => {
-        $crate::ConfigError::Parse($msg.to_string())
-    };
-
     // Wrap std::io::Error
     (io, $err:expr) => {
         $crate::ConfigError::Io($err)
