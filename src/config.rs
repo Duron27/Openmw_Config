@@ -326,7 +326,7 @@ impl OpenMWConfiguration {
 
         if let Some(duplicate) = duplicate {
             bail_config!(
-                duplicate_content_file,
+                content_already_defined,
                 duplicate.value().to_owned(),
                 duplicate.meta().source_config
             )

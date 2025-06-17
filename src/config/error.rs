@@ -33,14 +33,14 @@ macro_rules! config_err {
     };
 
     (archive_already_defined, $content_file:expr, $config_path:expr) => {
-        $crate::ConfigError::DuplicateContentFile {
+        $crate::ConfigError::CannotAddArchiveFile {
             file: $content_file,
             config_path: $config_path.to_path_buf(),
         }
     };
 
     (content_already_defined, $content_file:expr, $config_path:expr) => {
-        $crate::ConfigError::DuplicateContentFile {
+        $crate::ConfigError::CannotAddContentFile {
             file: $content_file,
             config_path: $config_path.to_path_buf(),
         }
