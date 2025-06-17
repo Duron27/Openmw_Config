@@ -41,6 +41,7 @@ pub enum SettingValue {
     Generic(GenericSetting),
     ContentFile(FileSetting),
     BethArchive(FileSetting),
+    Groundcover(FileSetting),
 }
 
 impl Display for SettingValue {
@@ -84,6 +85,9 @@ impl Display for SettingValue {
                     archive.value(),
                 )
             }
+            SettingValue::Groundcover(grass) => {
+                format!("{}groundcover={}", grass.meta().comment, grass.value())
+            }
         };
 
         write!(f, "{str}")
@@ -106,6 +110,7 @@ impl SettingValue {
     pub fn meta(&self) -> &crate::GameSettingMeta {
         match self {
             SettingValue::BethArchive(setting) => setting.meta(),
+            SettingValue::Groundcover(setting) => setting.meta(),
             SettingValue::UserData(setting) => setting.meta(),
             SettingValue::DataLocal(setting) => setting.meta(),
             SettingValue::DataDirectory(setting) => setting.meta(),
@@ -296,6 +301,13 @@ impl OpenMWConfiguration {
         })
     }
 
+    pub fn has_groundcover_file(&self, file_name: &str) -> bool {
+        self.settings.iter().any(|setting| match setting {
+            SettingValue::Groundcover(plugin) => plugin == file_name,
+            _ => false,
+        })
+    }
+
     pub fn has_archive_file(&self, file_name: &str) -> bool {
         self.settings.iter().any(|setting| match setting {
             SettingValue::BethArchive(archive) => archive == file_name,
@@ -342,9 +354,59 @@ impl OpenMWConfiguration {
         Ok(())
     }
 
+    pub fn groundcover(&self) -> Vec<&String> {
+        self.groundcover_iter()
+            .map(|setting| setting.value())
+            .collect()
+    }
+
+    pub fn groundcover_iter(&self) -> impl Iterator<Item = &FileSetting> {
+        self.settings.iter().filter_map(|setting| match setting {
+            SettingValue::Groundcover(grass) => Some(grass),
+            _ => None,
+        })
+    }
+
+    pub fn add_groundcover_file(&mut self, content_file: &str) -> Result<(), ConfigError> {
+        let duplicate = self.settings.iter().find_map(|setting| match setting {
+            SettingValue::Groundcover(plugin) => {
+                if plugin == content_file {
+                    Some(plugin)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        });
+
+        if let Some(duplicate) = duplicate {
+            bail_config!(
+                groundcover_already_defined,
+                duplicate.value().to_owned(),
+                duplicate.meta().source_config
+            )
+        };
+
+        self.settings
+            .push(SettingValue::Groundcover(FileSetting::new(
+                content_file,
+                &self.user_config_path().join("openmw.cfg"),
+                &mut String::default(),
+            )));
+
+        Ok(())
+    }
+
     pub fn remove_content_file(&mut self, file_name: &str) {
         self.clear_matching(|setting| match setting {
             SettingValue::ContentFile(existing_file) => existing_file == file_name,
+            _ => false,
+        });
+    }
+
+    pub fn remove_groundcover_file(&mut self, file_name: &str) {
+        self.clear_matching(|setting| match setting {
+            SettingValue::Groundcover(existing_file) => existing_file == file_name,
             _ => false,
         });
     }
@@ -648,6 +710,29 @@ impl OpenMWConfiguration {
 
                     self.settings
                         .push(SettingValue::ContentFile(FileSetting::new(
+                            &value,
+                            &config_dir,
+                            &mut queued_comment,
+                        )));
+                }
+                "groundcover" => {
+                    self.settings.iter().try_for_each(|setting| match setting {
+                        SettingValue::Groundcover(plugin) => {
+                            if *plugin == &value {
+                                bail_config!(
+                                    duplicate_groundcover_file,
+                                    value.to_owned(),
+                                    config_dir
+                                )
+                            } else {
+                                Ok(())
+                            }
+                        }
+                        _ => Ok(()),
+                    })?;
+
+                    self.settings
+                        .push(SettingValue::Groundcover(FileSetting::new(
                             &value,
                             &config_dir,
                             &mut queued_comment,

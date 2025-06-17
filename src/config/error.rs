@@ -46,6 +46,20 @@ macro_rules! config_err {
         }
     };
 
+    (groundcover_already_defined, $groundcover_file:expr, $config_path:expr) => {
+        $crate::ConfigError::CannotAddGroundcoverFile {
+            file: $groundcover_file,
+            config_path: $config_path.to_path_buf(),
+        }
+    };
+
+    (duplicate_groundcover_file, $groundcover_file:expr, $config_path:expr) => {
+        $crate::ConfigError::DuplicateGroundcoverFile {
+            file: $groundcover_file,
+            config_path: $config_path.to_path_buf(),
+        }
+    };
+
     (bad_encoding, $encoding:expr, $config_path:expr) => {
         $crate::ConfigError::BadEncoding {
             value: $encoding,
@@ -86,6 +100,8 @@ pub enum ConfigError {
     DuplicateArchiveFile { file: String, config_path: PathBuf },
     CannotAddContentFile { file: String, config_path: PathBuf },
     CannotAddArchiveFile { file: String, config_path: PathBuf },
+    DuplicateGroundcoverFile { file: String, config_path: PathBuf },
+    CannotAddGroundcoverFile { file: String, config_path: PathBuf },
     InvalidGameSetting { value: String, config_path: PathBuf },
     BadEncoding { value: String, config_path: PathBuf },
     InvalidLine { value: String, config_path: PathBuf },
@@ -130,6 +146,22 @@ impl fmt::Display for ConfigError {
                 ),
             ),
             ConfigError::CannotAddContentFile { file, config_path } => write!(
+                f,
+                "{}",
+                format!(
+                    "{file} cannot be added to the configuration map because it was already defined by: {}",
+                    config_path.display()
+                ),
+            ),
+            ConfigError::DuplicateGroundcoverFile { file, config_path } => write!(
+                f,
+                "{}",
+                format!(
+                    "{file} has appeared in the content files list twice. Its second occurence was in: {}",
+                    config_path.display()
+                ),
+            ),
+            ConfigError::CannotAddGroundcoverFile { file, config_path } => write!(
                 f,
                 "{}",
                 format!(
