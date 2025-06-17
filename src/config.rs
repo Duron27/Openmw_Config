@@ -128,6 +128,19 @@ macro_rules! insert_dir_setting {
     ($self:ident, $variant:ident, $value:expr, $config_dir:expr, $comment:expr) => {{
         let actual_dir = util::input_config_path($config_dir)?;
 
+        if actual_dir
+            .file_name()
+            .map(|f| f == "openmw.cfg")
+            .unwrap_or(false)
+        {
+            actual_dir = actual_dir
+                .parent()
+                .map(|p| p.to_path_buf())
+                .ok_or_else(|| {
+                    config_err!(parse, "Invalid openmw.cfg path: no parent directory")
+                })?;
+        }
+
         $self
             .settings
             .push(SettingValue::$variant(DirectorySetting::new(
