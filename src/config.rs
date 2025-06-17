@@ -126,16 +126,7 @@ impl SettingValue {
 
 macro_rules! insert_dir_setting {
     ($self:ident, $variant:ident, $value:expr, $config_dir:expr, $comment:expr) => {{
-        let actual_dir = match $config_dir.is_dir() {
-            true => $config_dir,
-            false => {
-                if $config_dir.is_file() {
-                    $config_dir.parent().expect("")
-                } else {
-                    bail_config!(not_file_or_directory, Path::new($value));
-                }
-            }
-        };
+        let actual_dir = util::input_config_path($config_dir)?;
 
         $self
             .settings

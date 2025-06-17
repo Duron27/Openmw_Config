@@ -37,19 +37,27 @@ pub fn can_write_to_dir<P: AsRef<std::path::Path>>(dir: &P) -> bool {
 pub fn input_config_path(
     config_path: &std::path::Path,
 ) -> Result<std::path::PathBuf, crate::ConfigError> {
-    if config_path.is_file() || config_path.is_symlink() {
-        Ok(config_path.to_path_buf())
-    } else if config_path.is_dir() {
-        let maybe_config = config_path.join("openmw.cfg");
-
-        if std::fs::metadata(maybe_config).is_ok() {
-            Ok(config_path.join("openmw.cfg"))
-        } else {
-            crate::config::bail_config!(cannot_find, config_path);
+    match std::fs::symlink_metadata(config_path) {
+        Ok(metadata) => {
+            if metadata.is_file() {
+                Ok(config_path.to_path_buf())
+            } else if metadata.is_dir() {
+                let maybe_config = config_path.join("openmw.cfg");
+                if maybe_config.is_file() {
+                    Ok(maybe_config)
+                } else {
+                    crate::config::bail_config!(cannot_find, config_path);
+                }
+            } else {
+                crate::config::bail_config!(not_file_or_directory, config_path);
+            }
         }
-    } else if !std::fs::metadata(config_path).is_ok() {
-        crate::config::bail_config!(not_file_or_directory, config_path);
-    } else {
-        Ok(config_path.to_path_buf().join("openmw.cfg"))
+        Err(err) => {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                crate::config::bail_config!(not_file_or_directory, config_path);
+            } else {
+                Err(crate::ConfigError::Io(err))
+            }
+        }
     }
 }
