@@ -47,7 +47,9 @@ pub fn input_config_path(
         } else {
             crate::config::bail_config!(cannot_find, config_path);
         }
-    } else {
+    } else if !std::fs::metadata(config_path).is_ok() {
         crate::config::bail_config!(not_file_or_directory, config_path);
+    } else {
+        Ok(config_path.to_path_buf().join("openmw.cfg"))
     }
 }
