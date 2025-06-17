@@ -49,7 +49,7 @@ impl Display for SettingValue {
         let str = match self {
             SettingValue::Encoding(encoding_setting) => encoding_setting.to_string(),
             SettingValue::UserData(userdata_setting) => format!(
-                "{}userdata={}",
+                "{}user-data={}",
                 userdata_setting.meta().comment,
                 userdata_setting.original()
             ),
@@ -784,7 +784,7 @@ impl OpenMWConfiguration {
                 "resources" => {
                     insert_dir_setting!(self, Resources, &value, &config_dir, &mut queued_comment)
                 }
-                "userdata" => {
+                "user-data" => {
                     insert_dir_setting!(self, UserData, &value, &config_dir, &mut queued_comment)
                 }
                 "data-local" => {
@@ -797,7 +797,7 @@ impl OpenMWConfiguration {
                     "fallback-archives" => self.set_fallback_archives(None),
                     "data-local" => self.set_data_local(None),
                     "resources" => self.set_resources(None),
-                    "userdata" => self.set_userdata(None),
+                    "user-data" => self.set_userdata(None),
                     "config" => {
                         self.settings.clear();
                     }
