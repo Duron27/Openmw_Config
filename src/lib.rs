@@ -1,5 +1,5 @@
 mod config;
-pub use config::{ error::ConfigError, OpenMWConfiguration };
+pub use config::{OpenMWConfiguration, error::ConfigError};
 
 pub(crate) trait GameSetting: std::fmt::Display {
     fn meta(&self) -> &GameSettingMeta;
@@ -19,7 +19,10 @@ const NO_CONFIG_DIR: &str = "FAILURE: COULD NOT READ CONFIG DIRECTORY";
 /// or that an unsupported system is being used.
 pub fn default_config_path() -> std::path::PathBuf {
     if cfg!(windows) {
-        dirs::document_dir().expect(NO_CONFIG_DIR).join("openmw")
+        dirs::document_dir()
+            .expect(NO_CONFIG_DIR)
+            .join("My Games")
+            .join("openmw")
     } else {
         dirs::preference_dir().expect(NO_CONFIG_DIR).join("openmw")
     }
