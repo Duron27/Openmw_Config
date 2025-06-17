@@ -149,7 +149,7 @@ impl fmt::Display for ConfigError {
                 f,
                 "{}",
                 format!(
-                    "{file} cannot be added to the configuration map because it was already defined by: {}",
+                    "{file} cannot be added to the configuration map as a content file because it was already defined by: {}",
                     config_path.display()
                 ),
             ),
@@ -157,7 +157,7 @@ impl fmt::Display for ConfigError {
                 f,
                 "{}",
                 format!(
-                    "{file} has appeared in the content files list twice. Its second occurence was in: {}",
+                    "{file} has appeared in the groundcover list twice. Its second occurence was in: {}",
                     config_path.display()
                 ),
             ),
@@ -165,7 +165,7 @@ impl fmt::Display for ConfigError {
                 f,
                 "{}",
                 format!(
-                    "{file} cannot be added to the configuration map because it was already defined by: {}",
+                    "{file} cannot be added to the configuration map as a groundcover plugin because it was already defined by: {}",
                     config_path.display()
                 ),
             ),
@@ -181,7 +181,7 @@ impl fmt::Display for ConfigError {
                 f,
                 "{}",
                 format!(
-                    "{file} cannot be added to the configuration map because it was already defined by: {}",
+                    "{file} cannot be added to the configuration map as a fallback-archive because it was already defined by: {}",
                     config_path.display()
                 ),
             ),
