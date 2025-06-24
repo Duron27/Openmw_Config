@@ -164,6 +164,30 @@ pub struct OpenMWConfiguration {
 }
 
 impl OpenMWConfiguration {
+    pub fn from_env() -> Result<Self, ConfigError> {
+        if let Ok(explicit_path) = std::env::var("OPENMW_CONFIG") {
+            let explicit_path: PathBuf = shellexpand::tilde(&explicit_path).into_owned().into();
+
+            return Self::new(Some(explicit_path));
+        } else if let Ok(path_list) = std::env::var("OPENMW_CONFIG_DIR") {
+            let path_list = if cfg!(windows) {
+                path_list.split(';')
+            } else {
+                path_list.split(':')
+            };
+
+            for dir in path_list {
+                let dir: PathBuf = shellexpand::tilde(&dir).into_owned().into();
+
+                if dir.join("openmw.cfg").exists() {
+                    return Self::new(Some(dir));
+                }
+            }
+        }
+
+        Self::new(None)
+    }
+
     pub fn new(path: Option<PathBuf>) -> Result<Self, ConfigError> {
         let mut config = OpenMWConfiguration::default();
         let root_config = match path {
