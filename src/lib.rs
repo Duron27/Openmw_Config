@@ -1,5 +1,9 @@
 mod config;
-pub use config::{OpenMWConfiguration, error::ConfigError};
+pub use config::{
+    OpenMWConfiguration, directorysetting::DirectorySetting, encodingsetting::EncodingSetting,
+    error::ConfigError, filesetting::FileSetting, gamesetting::GameSettingType,
+    genericsetting::GenericSetting,
+};
 
 pub(crate) trait GameSetting: std::fmt::Display {
     fn meta(&self) -> &GameSettingMeta;
