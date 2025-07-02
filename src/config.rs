@@ -7,19 +7,19 @@ use std::{
 use crate::{ConfigError, GameSetting, bail_config};
 use std::collections::HashSet;
 
-mod directorysetting;
+pub mod directorysetting;
 use directorysetting::DirectorySetting;
 
-mod filesetting;
+pub mod filesetting;
 use filesetting::FileSetting;
 
-mod gamesetting;
+pub mod gamesetting;
 use gamesetting::GameSettingType;
 
-mod genericsetting;
+pub mod genericsetting;
 use genericsetting::GenericSetting;
 
-mod encodingsetting;
+pub mod encodingsetting;
 use encodingsetting::EncodingSetting;
 
 #[macro_use]
@@ -200,38 +200,45 @@ impl OpenMWConfiguration {
         match config.load(&config.root_config.to_owned()) {
             Err(error) => Err(error),
             Ok(_) => {
-                if let Some(dir) = &config.data_local() {
-                    let dir = dir.parsed();
+                if let Some(dir) = config.data_local() {
+                    let path = dir.parsed();
 
-                    let dir_meta = metadata(dir);
-                    if !dir_meta.is_ok() {
-                        if let Err(error) = create_dir_all(dir) {
+                    let path_meta = metadata(path);
+                    if !path_meta.is_ok() {
+                        if let Err(error) = create_dir_all(path) {
                             util::debug_log(format!(
-                                "WARNING: Attempted to crete a data-local directory at {dir:?}, but failed: {error}"
+                                "WARNING: Attempted to crete a data-local directory at {path:?}, but failed: {error}"
                             ))
                         };
                     }
+
+                    config
+                        .settings
+                        .push(SettingValue::DataDirectory(dir.clone()));
                 }
 
-                if let Some(dir) = config.resources() {
-                    let dir = dir.parsed();
+                if let Some(setting) = config.resources() {
+                    let dir = setting.parsed();
 
-                    let morrowind_vfs: SettingValue = DirectorySetting::new(
+                    let morrowind_vfs = DirectorySetting::new(
                         dir.join("vfs-mw").to_string_lossy().to_string(),
-                        config.root_config.to_owned(),
-                        &mut String::default(),
-                    )
-                    .into();
+                        setting.meta.source_config.to_path_buf(),
+                        &mut setting.meta.comment.to_string(),
+                    );
 
-                    let engine_vfs: SettingValue = DirectorySetting::new(
+                    let engine_vfs = DirectorySetting::new(
                         dir.join("vfs").to_string_lossy().to_string(),
-                        config.root_config.to_owned(),
-                        &mut String::default(),
-                    )
-                    .into();
+                        setting.meta.source_config.to_path_buf(),
+                        &mut setting.meta.comment.to_string(),
+                    );
 
-                    config.settings.insert(0, morrowind_vfs);
-                    config.settings.insert(0, engine_vfs);
+                    config
+                        .settings
+                        .insert(0, SettingValue::DataDirectory(morrowind_vfs));
+
+                    config
+                        .settings
+                        .insert(0, SettingValue::DataDirectory(engine_vfs));
                 }
 
                 util::debug_log(format!("{:#?}", config.settings));
