@@ -90,7 +90,7 @@ impl Display for SettingValue {
             }
         };
 
-        write!(f, "{str}")
+        writeln!(f, "{str}")
     }
 }
 
