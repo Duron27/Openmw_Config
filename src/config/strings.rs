@@ -1,5 +1,8 @@
-/// This whole file should just be part of DirectorySetting now and the parse_data_directory function exposed in the lib.rs
-/// But right now, meh
+// This file is part of Openmw_Config.
+// Openmw_Config is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+// Openmw_Config is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+// You should have received a copy of the GNU General Public License along with Openmw_Config. If not, see <https://www.gnu.org/licenses/>.
+
 use std::path::PathBuf;
 
 fn strip_special_components<P: AsRef<std::path::Path>>(input: P) -> PathBuf {
