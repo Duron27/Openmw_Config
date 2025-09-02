@@ -27,6 +27,10 @@ const NO_CONFIG_DIR: &str = "FAILURE: COULD NOT READ CONFIG DIRECTORY";
 /// a severe issue with the system
 /// or that an unsupported system is being used.
 pub fn default_config_path() -> std::path::PathBuf {
+    #[cfg(target_os = "android")]
+    std::path::PathBuf::from("/storage/emulated/0/Alpha3/config");
+
+    #[cfg(not(target_os = "android"))]
     if cfg!(windows) {
         dirs::document_dir()
             .expect(NO_CONFIG_DIR)
@@ -42,6 +46,10 @@ pub fn default_config_path() -> std::path::PathBuf {
 /// a severe issue with the system
 /// or that an unsupported system is being used.
 pub fn default_userdata_path() -> std::path::PathBuf {
+    #[cfg(target_os = "android")]
+    std::path::PathBuf::from("/data/user/0/com.alpha3.launcher/files/config");
+
+    #[cfg(not(target_os = "android"))]
     if cfg!(windows) {
         default_config_path()
     } else {
