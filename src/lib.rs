@@ -47,7 +47,7 @@ pub fn default_config_path() -> std::path::PathBuf {
 /// or that an unsupported system is being used.
 pub fn default_userdata_path() -> std::path::PathBuf {
     #[cfg(target_os = "android")]
-    return std::path::PathBuf::from("/storage/emulated/0/Alpha3");
+    std::path::PathBuf::from("/storage/emulated/0/Alpha3")
 
     #[cfg(not(target_os = "android"))]
     if cfg!(windows) {
